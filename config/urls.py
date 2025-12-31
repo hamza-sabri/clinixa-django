@@ -55,12 +55,20 @@ urlpatterns = [
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     
     # API Endpoints - auth routes under /api/users/, resource routes at their own paths
-    path('api/users/', include('apps.users.urls')),  # Only authentication routes
+    path('api/users/', include('apps.users.urls')),  # Authentication routes
     path('api/clinics/', include('apps.clinics.urls')),
     path('api/employees/', include('apps.clinics.employees_urls')),
     path('api/visits/', include('apps.visits.urls')),
     path('api/vitals/', include('apps.vitals.urls')),
     path('api/medications/', include('apps.medications.urls')),
+    
+    # New pregnancy-centric endpoints
+    path('api/patients/', include('apps.users.patient_urls')),
+    path('api/pregnancies/', include('apps.users.pregnancy_urls')),
+    path('api/babies/', include('apps.users.baby_urls')),
+    
+    # Recordings (audio processing)
+    path('api/recordings/', include('apps.recordings.urls')),
     
     # Health check endpoint
     path('health/', lambda request: __import__('django.http', fromlist=['JsonResponse']).JsonResponse({'status': 'healthy'}), name='health'),

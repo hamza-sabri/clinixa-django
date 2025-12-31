@@ -12,3 +12,4 @@ class VisitAdmin(admin.ModelAdmin):
     date_hierarchy = 'time'
 
 
+

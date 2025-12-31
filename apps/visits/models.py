@@ -3,7 +3,10 @@ from django.conf import settings
 
 
 class Visit(models.Model):
-    """Visit model - patient appointments at clinics."""
+    """
+    Visit model - patient appointments at clinics.
+    Now linked to Pregnancy instead of directly to patient.
+    """
     
     class Status(models.TextChoices):
         PENDING = 'جاري التأكيد', 'جاري التأكيد'  # Pending confirmation
@@ -17,11 +20,23 @@ class Visit(models.Model):
         related_name='visits',
         verbose_name='clinic'
     )
+    # NEW: Link to pregnancy (will be required after data migration)
+    pregnancy = models.ForeignKey(
+        'users.Pregnancy',
+        on_delete=models.CASCADE,
+        related_name='visits',
+        verbose_name='pregnancy',
+        null=True,  # Temporary: nullable for migration
+        blank=True
+    )
+    # DEPRECATED: Will be removed after data migration
     patient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='visits',
-        verbose_name='patient'
+        verbose_name='patient (deprecated)',
+        null=True,  # Make nullable for transition
+        blank=True
     )
     time = models.DateTimeField('appointment time')
     status = models.CharField(
@@ -41,6 +56,19 @@ class Visit(models.Model):
         ordering = ['-time']
     
     def __str__(self):
-        return f"{self.patient.name or self.patient.email} - {self.clinic.name} ({self.time.strftime('%Y-%m-%d %H:%M')})"
+        if self.pregnancy:
+            patient = self.pregnancy.patient
+            return f"{patient.name or patient.email} - {self.clinic.name} ({self.time.strftime('%Y-%m-%d %H:%M')})"
+        elif self.patient:
+            return f"{self.patient.name or self.patient.email} - {self.clinic.name} ({self.time.strftime('%Y-%m-%d %H:%M')})"
+        return f"Visit at {self.clinic.name} ({self.time.strftime('%Y-%m-%d %H:%M')})"
+    
+    @property
+    def patient_user(self):
+        """Get the patient user from pregnancy or legacy patient field."""
+        if self.pregnancy:
+            return self.pregnancy.patient
+        return self.patient
+
 
 

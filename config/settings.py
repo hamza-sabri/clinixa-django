@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'apps.visits',
     'apps.vitals',
     'apps.medications',
+    'apps.recordings',
 ]
 
 MIDDLEWARE = [
@@ -337,5 +338,6 @@ CORS_ALLOW_HEADERS = [
     "x-csrftoken",
     "x-requested-with",
 ]
+
 
 

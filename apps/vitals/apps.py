@@ -7,3 +7,4 @@ class VitalsConfig(AppConfig):
     verbose_name = 'Vitals'
 
 
+

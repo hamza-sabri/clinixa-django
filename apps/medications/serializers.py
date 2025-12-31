@@ -91,3 +91,4 @@ class PatientMedListSerializer(serializers.ModelSerializer):
         return obj.med_name or (obj.med.name if obj.med else None)
 
 
+

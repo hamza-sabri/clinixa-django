@@ -7,3 +7,4 @@ class UsersConfig(AppConfig):
     verbose_name = 'Users'
 
 
+

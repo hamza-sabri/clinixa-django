@@ -7,3 +7,4 @@ class MedicationsConfig(AppConfig):
     verbose_name = 'Medications'
 
 
+

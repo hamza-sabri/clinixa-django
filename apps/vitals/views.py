@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
@@ -21,7 +22,7 @@ from apps.clinics.models import Clinic, Employee
 
 
 # ============================================================================
-# VITAL VIEWS
+# VITAL VIEWS (Mother's vitals)
 # ============================================================================
 
 class VitalQuerySetMixin:
@@ -30,23 +31,32 @@ class VitalQuerySetMixin:
     def get_queryset(self):
         user = self.request.user
         
-        # Patients see only their own vitals
+        # Patients see only their own vitals (via pregnancy)
         if user.user_type == 'patient':
-            return Vital.objects.filter(patient=user).select_related('patient')
+            if hasattr(user, 'patient_profile'):
+                return Vital.objects.filter(
+                    Q(pregnancy__patient_profile=user.patient_profile) |
+                    Q(patient=user)  # Legacy support
+                ).select_related('pregnancy__patient_profile__user', 'patient', 'visit')
+            return Vital.objects.filter(patient=user).select_related('patient', 'visit')
         
         # Doctors see vitals of patients who visited their clinics
         elif user.user_type == 'doctor':
-            from apps.visits.models import Visit
             clinic_ids = Clinic.objects.filter(doctor=user).values_list('id', flat=True)
-            patient_ids = Visit.objects.filter(clinic_id__in=clinic_ids).values_list('patient_id', flat=True).distinct()
-            return Vital.objects.filter(patient_id__in=patient_ids).select_related('patient')
+            return Vital.objects.filter(
+                Q(pregnancy__visits__clinic_id__in=clinic_ids) |
+                Q(pregnancy__created_by_clinic_id__in=clinic_ids) |
+                Q(visit__clinic_id__in=clinic_ids)
+            ).select_related('pregnancy__patient_profile__user', 'patient', 'visit').distinct()
         
         # Employees see vitals based on their clinic assignments
         elif user.user_type == 'employee':
-            from apps.visits.models import Visit
             clinic_ids = Employee.objects.filter(staff=user).values_list('clinic_id', flat=True)
-            patient_ids = Visit.objects.filter(clinic_id__in=clinic_ids).values_list('patient_id', flat=True).distinct()
-            return Vital.objects.filter(patient_id__in=patient_ids).select_related('patient')
+            return Vital.objects.filter(
+                Q(pregnancy__visits__clinic_id__in=clinic_ids) |
+                Q(pregnancy__created_by_clinic_id__in=clinic_ids) |
+                Q(visit__clinic_id__in=clinic_ids)
+            ).select_related('pregnancy__patient_profile__user', 'patient', 'visit').distinct()
         
         return Vital.objects.none()
 
@@ -57,15 +67,26 @@ class VitalListAPIView(VitalQuerySetMixin, generics.ListAPIView):
     serializer_class = VitalListSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['patient']
+    filterset_fields = ['pregnancy', 'visit']
     
     @swagger_auto_schema(
         operation_id='getVitals',
         operation_summary='List vital records',
-        operation_description='Get a list of vital records. Patients see their own vitals. Doctors/employees see vitals of patients who visited their clinics.',
+        operation_description='''
+Get a list of vital records (mother's vitals).
+
+**Access Control:**
+- Patients see their own vitals
+- Doctors/employees see vitals of patients who visited their clinics
+
+**Filters:**
+- `?pregnancy=` - Filter by pregnancy ID
+- `?visit=` - Filter by visit ID
+        ''',
         tags=['Vitals'],
         manual_parameters=[
-            openapi.Parameter('patient', openapi.IN_QUERY, description='Filter by patient ID', type=openapi.TYPE_INTEGER),
+            openapi.Parameter('pregnancy', openapi.IN_QUERY, description='Filter by pregnancy ID', type=openapi.TYPE_INTEGER),
+            openapi.Parameter('visit', openapi.IN_QUERY, description='Filter by visit ID', type=openapi.TYPE_INTEGER),
         ]
     )
     def get(self, request, *args, **kwargs):
@@ -97,7 +118,25 @@ class VitalCreateAPIView(generics.CreateAPIView):
     @swagger_auto_schema(
         operation_id='postVitals',
         operation_summary='Create a vital record',
-        operation_description='Create a new vital record. Supports file uploads via multipart/form-data. The authenticated user becomes the patient.',
+        operation_description='''
+Create a new vital record for a pregnancy.
+
+**Required fields:**
+- `pregnancy` - Pregnancy ID
+
+**Optional fields:**
+- `visit` - Link to a specific visit
+- `systolic`, `diastolic` - Blood pressure readings
+- `o2` - Oxygen saturation
+- `puls` - Pulse rate
+- `temp` - Temperature
+- `weight` - Weight in kg
+- `reading_date` - Date/time of reading
+- `mood` - Patient mood
+- `note` - Patient note
+- `dr_note` - Doctor note
+- `uploaded_files` - File attachments (multipart/form-data)
+        ''',
         tags=['Vitals'],
         request_body=VitalCreateSerializer
     )
@@ -154,23 +193,32 @@ class BabyVitalQuerySetMixin:
     def get_queryset(self):
         user = self.request.user
         
-        # Parents see only their own baby vitals
+        # Patients see only their own baby vitals (via pregnancy)
         if user.user_type == 'patient':
-            return BabyVital.objects.filter(parent=user).select_related('parent')
+            if hasattr(user, 'patient_profile'):
+                return BabyVital.objects.filter(
+                    Q(baby__pregnancy__patient_profile=user.patient_profile) |
+                    Q(parent=user)  # Legacy support
+                ).select_related('baby__pregnancy__patient_profile__user', 'parent', 'visit')
+            return BabyVital.objects.filter(parent=user).select_related('parent', 'visit')
         
         # Doctors see baby vitals of patients who visited their clinics
         elif user.user_type == 'doctor':
-            from apps.visits.models import Visit
             clinic_ids = Clinic.objects.filter(doctor=user).values_list('id', flat=True)
-            patient_ids = Visit.objects.filter(clinic_id__in=clinic_ids).values_list('patient_id', flat=True).distinct()
-            return BabyVital.objects.filter(parent_id__in=patient_ids).select_related('parent')
+            return BabyVital.objects.filter(
+                Q(baby__pregnancy__visits__clinic_id__in=clinic_ids) |
+                Q(baby__pregnancy__created_by_clinic_id__in=clinic_ids) |
+                Q(visit__clinic_id__in=clinic_ids)
+            ).select_related('baby__pregnancy__patient_profile__user', 'parent', 'visit').distinct()
         
         # Employees see baby vitals based on their clinic assignments
         elif user.user_type == 'employee':
-            from apps.visits.models import Visit
             clinic_ids = Employee.objects.filter(staff=user).values_list('clinic_id', flat=True)
-            patient_ids = Visit.objects.filter(clinic_id__in=clinic_ids).values_list('patient_id', flat=True).distinct()
-            return BabyVital.objects.filter(parent_id__in=patient_ids).select_related('parent')
+            return BabyVital.objects.filter(
+                Q(baby__pregnancy__visits__clinic_id__in=clinic_ids) |
+                Q(baby__pregnancy__created_by_clinic_id__in=clinic_ids) |
+                Q(visit__clinic_id__in=clinic_ids)
+            ).select_related('baby__pregnancy__patient_profile__user', 'parent', 'visit').distinct()
         
         return BabyVital.objects.none()
 
@@ -181,15 +229,26 @@ class BabyVitalListAPIView(BabyVitalQuerySetMixin, generics.ListAPIView):
     serializer_class = BabyVitalListSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['parent']
+    filterset_fields = ['baby', 'visit']
     
     @swagger_auto_schema(
         operation_id='getBabyVitals',
         operation_summary='List baby vital records',
-        operation_description='Get a list of baby vital records. Parents see their own records. Doctors/employees see records of patients who visited their clinics.',
+        operation_description='''
+Get a list of baby vital records.
+
+**Access Control:**
+- Patients see their own baby vitals
+- Doctors/employees see vitals from their clinics
+
+**Filters:**
+- `?baby=` - Filter by baby ID
+- `?visit=` - Filter by visit ID
+        ''',
         tags=['Baby Vitals'],
         manual_parameters=[
-            openapi.Parameter('parent', openapi.IN_QUERY, description='Filter by parent ID', type=openapi.TYPE_INTEGER),
+            openapi.Parameter('baby', openapi.IN_QUERY, description='Filter by baby ID', type=openapi.TYPE_INTEGER),
+            openapi.Parameter('visit', openapi.IN_QUERY, description='Filter by visit ID', type=openapi.TYPE_INTEGER),
         ]
     )
     def get(self, request, *args, **kwargs):
@@ -221,7 +280,24 @@ class BabyVitalCreateAPIView(generics.CreateAPIView):
     @swagger_auto_schema(
         operation_id='postBabyVitals',
         operation_summary='Create a baby vital record',
-        operation_description='Create a new baby vital record. Supports file uploads via multipart/form-data.',
+        operation_description='''
+Create a new baby vital record.
+
+**Required fields:**
+- `baby` - Baby ID
+
+**Optional fields:**
+- `visit` - Link to a specific visit
+- `puls` - Pulse rate
+- `systolic`, `diastolic` - Blood pressure
+- `o2` - Oxygen saturation
+- `weight` - Weight in kg
+- `age` - Age string
+- `note` - Notes
+- `reading_date` - Date/time of reading
+- `due_date` - Due date
+- `uploaded_files` - File attachments
+        ''',
         tags=['Baby Vitals'],
         request_body=BabyVitalCreateSerializer
     )

@@ -77,3 +77,4 @@ class PatientMed(models.Model):
         super().save(*args, **kwargs)
 
 
+

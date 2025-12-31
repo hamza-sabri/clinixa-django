@@ -2,26 +2,102 @@ from rest_framework import serializers
 from .models import Vital, BabyVital
 
 
+# ============================================================================
+# VITAL SERIALIZERS (Mother's vitals)
+# ============================================================================
+
 class VitalSerializer(serializers.ModelSerializer):
-    """Serializer for Vital model."""
+    """Serializer for Vital model - detailed view."""
     
-    patient_name = serializers.CharField(source='patient.name', read_only=True)
-    patient_email = serializers.CharField(source='patient.email', read_only=True)
+    # Patient info from pregnancy
+    patient_id = serializers.SerializerMethodField()
+    patient_name = serializers.SerializerMethodField()
+    patient_email = serializers.SerializerMethodField()
+    
+    # Pregnancy info
+    pregnancy_week = serializers.SerializerMethodField()
+    
+    # Visit info
+    visit_id = serializers.IntegerField(source='visit.id', read_only=True)
+    visit_time = serializers.DateTimeField(source='visit.time', read_only=True)
     
     class Meta:
         model = Vital
         fields = [
-            'id', 'patient', 'patient_name', 'patient_email',
+            'id', 'pregnancy', 'pregnancy_week', 'visit', 'visit_id', 'visit_time',
+            'patient_id', 'patient_name', 'patient_email',
             'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight',
-            'reading_date', 'files', 'mood', 'note', 'dr_note', 'created_at'
+            'reading_date', 'files', 'mood', 'note', 'dr_note', 
+            'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'patient', 'created_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_patient_id(self, obj):
+        if obj.pregnancy:
+            return obj.pregnancy.patient.id
+        elif obj.patient:
+            return obj.patient.id
+        return None
+    
+    def get_patient_name(self, obj):
+        if obj.pregnancy:
+            return obj.pregnancy.patient.name
+        elif obj.patient:
+            return obj.patient.name
+        return None
+    
+    def get_patient_email(self, obj):
+        if obj.pregnancy:
+            return obj.pregnancy.patient.email
+        elif obj.patient:
+            return obj.patient.email
+        return None
+    
+    def get_pregnancy_week(self, obj):
+        if obj.pregnancy:
+            return obj.pregnancy.pregnancy_week
+        return None
+
+
+class VitalListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for vital lists."""
+    
+    patient_name = serializers.SerializerMethodField()
+    patient_id = serializers.SerializerMethodField()
+    pregnancy_week = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Vital
+        fields = [
+            'id', 'pregnancy', 'pregnancy_week', 'visit',
+            'patient_id', 'patient_name',
+            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight',
+            'reading_date', 'mood'
+        ]
+    
+    def get_patient_name(self, obj):
+        if obj.pregnancy:
+            return obj.pregnancy.patient.name
+        elif obj.patient:
+            return obj.patient.name
+        return None
+    
+    def get_patient_id(self, obj):
+        if obj.pregnancy:
+            return obj.pregnancy.patient.id
+        elif obj.patient:
+            return obj.patient.id
+        return None
+    
+    def get_pregnancy_week(self, obj):
+        if obj.pregnancy:
+            return obj.pregnancy.pregnancy_week
+        return None
 
 
 class VitalCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating a vital record."""
     
-    # Accept file uploads
     uploaded_files = serializers.ListField(
         child=serializers.FileField(),
         write_only=True,
@@ -31,19 +107,21 @@ class VitalCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vital
         fields = [
+            'pregnancy', 'visit',
             'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight',
             'reading_date', 'files', 'mood', 'note', 'dr_note', 'uploaded_files'
         ]
         extra_kwargs = {
+            'pregnancy': {'required': True},
+            'visit': {'required': False},
             'files': {'required': False},
+            'reading_date': {'required': False},
         }
     
     def create(self, validated_data):
-        # Handle file uploads if present
         uploaded_files = validated_data.pop('uploaded_files', [])
-        validated_data['patient'] = self.context['request'].user
         
-        # Upload files to Cloudinary
+        # Upload files to Cloudinary if present
         if uploaded_files:
             from apps.vitals.utils import upload_files_to_cloudinary
             file_urls = upload_files_to_cloudinary(uploaded_files)
@@ -69,48 +147,104 @@ class VitalUpdateSerializer(serializers.ModelSerializer):
         ]
     
     def update(self, instance, validated_data):
-        # Handle file uploads if present
         uploaded_files = validated_data.pop('uploaded_files', [])
         
         if uploaded_files:
             from apps.vitals.utils import upload_files_to_cloudinary
             file_urls = upload_files_to_cloudinary(uploaded_files)
-            # Append new files to existing ones
             existing_files = instance.files or []
             validated_data['files'] = existing_files + file_urls
         
         return super().update(instance, validated_data)
 
 
-class VitalListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for vital lists."""
-    
-    patient_name = serializers.CharField(source='patient.name', read_only=True)
-    
-    class Meta:
-        model = Vital
-        fields = [
-            'id', 'patient', 'patient_name', 'systolic', 'diastolic',
-            'o2', 'puls', 'temp', 'weight', 'reading_date', 'mood'
-        ]
-
-
-# Baby Vital Serializers
+# ============================================================================
+# BABY VITAL SERIALIZERS
+# ============================================================================
 
 class BabyVitalSerializer(serializers.ModelSerializer):
-    """Serializer for BabyVital model."""
+    """Serializer for BabyVital model - detailed view."""
     
-    parent_name = serializers.CharField(source='parent.name', read_only=True)
-    parent_email = serializers.CharField(source='parent.email', read_only=True)
+    # Baby info
+    baby_name = serializers.CharField(source='baby.name', read_only=True)
+    baby_gender = serializers.CharField(source='baby.gender', read_only=True)
+    
+    # Parent/Patient info
+    patient_id = serializers.SerializerMethodField()
+    patient_name = serializers.SerializerMethodField()
+    
+    # Pregnancy info
+    pregnancy_id = serializers.SerializerMethodField()
+    pregnancy_week = serializers.SerializerMethodField()
+    
+    # Visit info
+    visit_id = serializers.IntegerField(source='visit.id', read_only=True)
+    visit_time = serializers.DateTimeField(source='visit.time', read_only=True)
     
     class Meta:
         model = BabyVital
         fields = [
-            'id', 'parent', 'parent_name', 'parent_email',
+            'id', 'baby', 'baby_name', 'baby_gender', 'visit', 'visit_id', 'visit_time',
+            'pregnancy_id', 'pregnancy_week',
+            'patient_id', 'patient_name',
             'puls', 'systolic', 'diastolic', 'o2', 'weight', 'age',
-            'note', 'reading_date', 'files', 'due_date', 'created_at'
+            'note', 'reading_date', 'files', 'due_date',
+            'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'parent', 'created_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_patient_id(self, obj):
+        if obj.baby and obj.baby.pregnancy:
+            return obj.baby.pregnancy.patient.id
+        elif obj.parent:
+            return obj.parent.id
+        return None
+    
+    def get_patient_name(self, obj):
+        if obj.baby and obj.baby.pregnancy:
+            return obj.baby.pregnancy.patient.name
+        elif obj.parent:
+            return obj.parent.name
+        return None
+    
+    def get_pregnancy_id(self, obj):
+        if obj.baby:
+            return obj.baby.pregnancy.id
+        return None
+    
+    def get_pregnancy_week(self, obj):
+        if obj.baby and obj.baby.pregnancy:
+            return obj.baby.pregnancy.pregnancy_week
+        return None
+
+
+class BabyVitalListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for baby vital lists."""
+    
+    baby_name = serializers.CharField(source='baby.name', read_only=True)
+    patient_name = serializers.SerializerMethodField()
+    pregnancy_id = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = BabyVital
+        fields = [
+            'id', 'baby', 'baby_name', 'visit',
+            'pregnancy_id', 'patient_name',
+            'puls', 'systolic', 'diastolic', 'o2', 'weight', 'age',
+            'reading_date', 'due_date'
+        ]
+    
+    def get_patient_name(self, obj):
+        if obj.baby and obj.baby.pregnancy:
+            return obj.baby.pregnancy.patient.name
+        elif obj.parent:
+            return obj.parent.name
+        return None
+    
+    def get_pregnancy_id(self, obj):
+        if obj.baby:
+            return obj.baby.pregnancy.id
+        return None
 
 
 class BabyVitalCreateSerializer(serializers.ModelSerializer):
@@ -125,16 +259,19 @@ class BabyVitalCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = BabyVital
         fields = [
+            'baby', 'visit',
             'puls', 'systolic', 'diastolic', 'o2', 'weight', 'age',
             'note', 'reading_date', 'files', 'due_date', 'uploaded_files'
         ]
         extra_kwargs = {
+            'baby': {'required': True},
+            'visit': {'required': False},
             'files': {'required': False},
+            'reading_date': {'required': False},
         }
     
     def create(self, validated_data):
         uploaded_files = validated_data.pop('uploaded_files', [])
-        validated_data['parent'] = self.context['request'].user
         
         if uploaded_files:
             from apps.vitals.utils import upload_files_to_cloudinary
@@ -170,18 +307,3 @@ class BabyVitalUpdateSerializer(serializers.ModelSerializer):
             validated_data['files'] = existing_files + file_urls
         
         return super().update(instance, validated_data)
-
-
-class BabyVitalListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for baby vital lists."""
-    
-    parent_name = serializers.CharField(source='parent.name', read_only=True)
-    
-    class Meta:
-        model = BabyVital
-        fields = [
-            'id', 'parent', 'parent_name', 'puls', 'systolic', 'diastolic',
-            'o2', 'weight', 'age', 'reading_date', 'due_date'
-        ]
-
-

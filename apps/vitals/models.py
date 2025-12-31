@@ -3,13 +3,38 @@ from django.conf import settings
 
 
 class Vital(models.Model):
-    """Vital signs record for a patient."""
+    """
+    Vital signs record for a patient (mother).
+    Now linked to Pregnancy instead of directly to patient.
+    Can optionally be linked to a specific visit.
+    """
     
+    # NEW: Link to pregnancy (will be required after data migration)
+    pregnancy = models.ForeignKey(
+        'users.Pregnancy',
+        on_delete=models.CASCADE,
+        related_name='vitals',
+        verbose_name='pregnancy',
+        null=True,  # Temporary: nullable for migration
+        blank=True
+    )
+    # NEW: Optional link to a specific visit
+    visit = models.OneToOneField(
+        'visits.Visit',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='vital',
+        verbose_name='visit'
+    )
+    # DEPRECATED: Will be removed after data migration
     patient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='vitals',
-        verbose_name='patient'
+        verbose_name='patient (deprecated)',
+        null=True,  # Make nullable for transition
+        blank=True
     )
     systolic = models.IntegerField('systolic pressure', null=True, blank=True)
     diastolic = models.IntegerField('diastolic pressure', null=True, blank=True)
@@ -31,17 +56,54 @@ class Vital(models.Model):
         ordering = ['-reading_date', '-created_at']
     
     def __str__(self):
-        return f"{self.patient.name or self.patient.email} - {self.reading_date or self.created_at}"
+        if self.pregnancy:
+            patient = self.pregnancy.patient
+            return f"{patient.name or patient.email} - {self.reading_date or self.created_at}"
+        elif self.patient:
+            return f"{self.patient.name or self.patient.email} - {self.reading_date or self.created_at}"
+        return f"Vital - {self.reading_date or self.created_at}"
+    
+    @property
+    def patient_user(self):
+        """Get the patient user from pregnancy or legacy patient field."""
+        if self.pregnancy:
+            return self.pregnancy.patient
+        return self.patient
 
 
 class BabyVital(models.Model):
-    """Vital signs record for baby/pregnancy tracking."""
+    """
+    Vital signs record for baby/pregnancy tracking.
+    Now linked to Baby instead of directly to parent.
+    Can optionally be linked to a specific visit.
+    """
     
+    # NEW: Link to specific baby (will be required after data migration)
+    baby = models.ForeignKey(
+        'users.Baby',
+        on_delete=models.CASCADE,
+        related_name='vitals',
+        verbose_name='baby',
+        null=True,  # Temporary: nullable for migration
+        blank=True
+    )
+    # NEW: Optional link to a specific visit
+    visit = models.ForeignKey(
+        'visits.Visit',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='baby_vitals',
+        verbose_name='visit'
+    )
+    # DEPRECATED: Will be removed after data migration
     parent = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='baby_vitals',
-        verbose_name='parent'
+        verbose_name='parent (deprecated)',
+        null=True,  # Make nullable for transition
+        blank=True
     )
     puls = models.IntegerField('pulse rate', null=True, blank=True)
     systolic = models.IntegerField('systolic pressure', null=True, blank=True)
@@ -62,6 +124,27 @@ class BabyVital(models.Model):
         ordering = ['-reading_date', '-created_at']
     
     def __str__(self):
-        return f"{self.parent.name or self.parent.email} - Baby - {self.reading_date or self.created_at}"
+        if self.baby:
+            pregnancy = self.baby.pregnancy
+            patient = pregnancy.patient
+            return f"{patient.name or patient.email} - Baby {self.baby.name or 'unnamed'} - {self.reading_date or self.created_at}"
+        elif self.parent:
+            return f"{self.parent.name or self.parent.email} - Baby - {self.reading_date or self.created_at}"
+        return f"Baby Vital - {self.reading_date or self.created_at}"
+    
+    @property
+    def patient_user(self):
+        """Get the parent/patient user from baby or legacy parent field."""
+        if self.baby:
+            return self.baby.pregnancy.patient
+        return self.parent
+    
+    @property
+    def pregnancy(self):
+        """Get pregnancy from baby."""
+        if self.baby:
+            return self.baby.pregnancy
+        return None
+
 
 

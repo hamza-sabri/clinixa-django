@@ -7,3 +7,4 @@ class ClinicsConfig(AppConfig):
     verbose_name = 'Clinics'
 
 
+

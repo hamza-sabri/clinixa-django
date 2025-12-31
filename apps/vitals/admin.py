@@ -22,3 +22,4 @@ class BabyVitalAdmin(admin.ModelAdmin):
     date_hierarchy = 'reading_date'
 
 
+
