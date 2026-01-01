@@ -14,6 +14,7 @@ from .serializers import (
     VisitListSerializer,
 )
 from apps.clinics.models import Clinic, Employee
+from apps.core.swagger import PAGINATION_PARAMETERS, PAGINATION_DESCRIPTION
 
 
 class VisitQuerySetMixin:
@@ -70,13 +71,13 @@ Get a list of visits.
 - `?pregnancy=` - Filter by pregnancy ID
 - `?clinic=` - Filter by clinic ID
 - `?status=` - Filter by status
-        ''',
+        ''' + PAGINATION_DESCRIPTION,
         tags=['Visits'],
         manual_parameters=[
             openapi.Parameter('clinic', openapi.IN_QUERY, description='Filter by clinic ID', type=openapi.TYPE_INTEGER),
             openapi.Parameter('pregnancy', openapi.IN_QUERY, description='Filter by pregnancy ID', type=openapi.TYPE_INTEGER),
             openapi.Parameter('status', openapi.IN_QUERY, description='Filter by status', type=openapi.TYPE_STRING),
-        ]
+        ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)

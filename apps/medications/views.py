@@ -14,6 +14,7 @@ from .serializers import (
     PatientMedListSerializer,
 )
 from apps.clinics.models import Clinic, Employee
+from apps.core.swagger import PAGINATION_PARAMETERS, PAGINATION_DESCRIPTION
 
 
 # ============================================================================
@@ -31,11 +32,11 @@ class MedListAPIView(generics.ListAPIView):
     @swagger_auto_schema(
         operation_id='getMeds',
         operation_summary='List medications',
-        operation_description='Get a list of all medications in the system.',
+        operation_description='Get a list of all medications in the system.' + PAGINATION_DESCRIPTION,
         tags=['Meds'],
         manual_parameters=[
             openapi.Parameter('created_by', openapi.IN_QUERY, description='Filter by creator ID', type=openapi.TYPE_INTEGER),
-        ]
+        ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -154,12 +155,12 @@ class PatientMedListAPIView(PatientMedQuerySetMixin, generics.ListAPIView):
     @swagger_auto_schema(
         operation_id='getPatientMeds',
         operation_summary='List patient medications',
-        operation_description='Get a list of patient medication records. Patients see their own records. Doctors/employees see records of their clinic patients.',
+        operation_description='Get a list of patient medication records. Patients see their own records. Doctors/employees see records of their clinic patients.' + PAGINATION_DESCRIPTION,
         tags=['Patient Meds'],
         manual_parameters=[
             openapi.Parameter('patient', openapi.IN_QUERY, description='Filter by patient ID', type=openapi.TYPE_INTEGER),
             openapi.Parameter('med', openapi.IN_QUERY, description='Filter by medication ID', type=openapi.TYPE_INTEGER),
-        ]
+        ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)

@@ -23,3 +23,4 @@ class BabyVitalAdmin(admin.ModelAdmin):
 
 
 
+

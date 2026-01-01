@@ -92,3 +92,4 @@ class PatientMedListSerializer(serializers.ModelSerializer):
 
 
 
+

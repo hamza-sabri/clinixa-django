@@ -51,6 +51,7 @@ class ClinicListSerializer(serializers.ModelSerializer):
     def get_distinct_patients_count(self, obj):
         """Get count of distinct patients who have visited this clinic."""
         from apps.visits.models import Visit
+        print(Visit.objects.filter(clinic=obj).values('patient').distinct())
         return Visit.objects.filter(clinic=obj).values('patient').distinct().count()
     
     def get_employees_count(self, obj):
@@ -85,7 +86,7 @@ class ClinicDetailSerializer(serializers.ModelSerializer):
     def get_distinct_patients_count(self, obj):
         """Get count of distinct patients who have visited this clinic."""
         from apps.visits.models import Visit
-        return Visit.objects.filter(clinic=obj).values('patient').distinct().count()
+        return Visit.objects.filter(clinic=obj).values('pregnancy').distinct().count()
     
     def get_employees_count(self, obj):
         """Get total number of employees at this clinic."""

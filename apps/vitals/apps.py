@@ -8,3 +8,4 @@ class VitalsConfig(AppConfig):
 
 
 
+

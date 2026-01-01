@@ -19,6 +19,7 @@ from .serializers import (
     BabyVitalListSerializer,
 )
 from apps.clinics.models import Clinic, Employee
+from apps.core.swagger import PAGINATION_PARAMETERS, PAGINATION_DESCRIPTION
 
 
 # ============================================================================
@@ -42,12 +43,8 @@ class VitalQuerySetMixin:
         
         # Doctors see vitals of patients who visited their clinics
         elif user.user_type == 'doctor':
-            clinic_ids = Clinic.objects.filter(doctor=user).values_list('id', flat=True)
-            return Vital.objects.filter(
-                Q(pregnancy__visits__clinic_id__in=clinic_ids) |
-                Q(pregnancy__created_by_clinic_id__in=clinic_ids) |
-                Q(visit__clinic_id__in=clinic_ids)
-            ).select_related('pregnancy__patient_profile__user', 'patient', 'visit').distinct()
+
+            return Vital.objects.all().select_related('pregnancy__patient_profile__user', 'patient', 'visit').distinct()
         
         # Employees see vitals based on their clinic assignments
         elif user.user_type == 'employee':
@@ -82,12 +79,12 @@ Get a list of vital records (mother's vitals).
 **Filters:**
 - `?pregnancy=` - Filter by pregnancy ID
 - `?visit=` - Filter by visit ID
-        ''',
+        ''' + PAGINATION_DESCRIPTION,
         tags=['Vitals'],
         manual_parameters=[
             openapi.Parameter('pregnancy', openapi.IN_QUERY, description='Filter by pregnancy ID', type=openapi.TYPE_INTEGER),
             openapi.Parameter('visit', openapi.IN_QUERY, description='Filter by visit ID', type=openapi.TYPE_INTEGER),
-        ]
+        ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -244,12 +241,12 @@ Get a list of baby vital records.
 **Filters:**
 - `?baby=` - Filter by baby ID
 - `?visit=` - Filter by visit ID
-        ''',
+        ''' + PAGINATION_DESCRIPTION,
         tags=['Baby Vitals'],
         manual_parameters=[
             openapi.Parameter('baby', openapi.IN_QUERY, description='Filter by baby ID', type=openapi.TYPE_INTEGER),
             openapi.Parameter('visit', openapi.IN_QUERY, description='Filter by visit ID', type=openapi.TYPE_INTEGER),
-        ]
+        ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)

@@ -35,6 +35,7 @@ from .serializers import (
     BabyCreateSerializer,
     BabyUpdateSerializer,
 )
+from apps.core.swagger import PAGINATION_PARAMETERS, PAGINATION_DESCRIPTION
 
 User = get_user_model()
 
@@ -311,13 +312,13 @@ List all patients accessible by the authenticated user.
 
 **Search:** Use `?search=` to search by name, email, or phone
 **Filters:** Use `?phone=` or `?email=` for exact matches
-        ''',
+        ''' + PAGINATION_DESCRIPTION,
         tags=['Patients'],
         manual_parameters=[
             openapi.Parameter('search', openapi.IN_QUERY, description='Search by name, email, or phone', type=openapi.TYPE_STRING),
             openapi.Parameter('phone', openapi.IN_QUERY, description='Filter by exact phone number', type=openapi.TYPE_STRING),
             openapi.Parameter('email', openapi.IN_QUERY, description='Filter by exact email', type=openapi.TYPE_STRING),
-        ]
+        ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -441,8 +442,9 @@ class PatientPregnancyListAPIView(generics.ListAPIView):
     @swagger_auto_schema(
         operation_id='getPatientPregnancies',
         operation_summary='List patient pregnancies',
-        operation_description='Get all pregnancies for a specific patient.',
-        tags=['Pregnancies']
+        operation_description='Get all pregnancies for a specific patient.' + PAGINATION_DESCRIPTION,
+        tags=['Pregnancies'],
+        manual_parameters=PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -584,8 +586,9 @@ class PregnancyBabyListAPIView(generics.ListAPIView):
     @swagger_auto_schema(
         operation_id='getPregnancyBabies',
         operation_summary='List babies in pregnancy',
-        operation_description='Get all babies for a specific pregnancy.',
-        tags=['Babies']
+        operation_description='Get all babies for a specific pregnancy.' + PAGINATION_DESCRIPTION,
+        tags=['Babies'],
+        manual_parameters=PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)

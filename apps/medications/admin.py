@@ -21,3 +21,4 @@ class PatientMedAdmin(admin.ModelAdmin):
 
 
 
+

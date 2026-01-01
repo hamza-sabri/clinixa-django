@@ -57,3 +57,4 @@ def upload_single_file_to_cloudinary(file, folder='clinixa/vitals'):
 
 
 
+

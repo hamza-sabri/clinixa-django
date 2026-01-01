@@ -36,6 +36,24 @@ Authorization: Bearer <your_access_token>
 ### Token Lifetime
 - Access Token: 24 hours
 - Refresh Token: 7 days
+
+### Pagination
+All list endpoints support pagination with the following query parameters:
+- `page` - Page number (default: 1)
+- `page_size` - Number of items per page (default: 20, max: 100)
+
+Paginated responses include:
+```json
+{
+    "count": 100,
+    "next": "http://api.clinixa.com/api/resource/?page=2",
+    "previous": null,
+    "page": 1,
+    "page_size": 20,
+    "total_pages": 5,
+    "results": [...]
+}
+```
         """,
         terms_of_service="https://www.clinixa.com/terms/",
         contact=openapi.Contact(email="support@clinixa.com"),

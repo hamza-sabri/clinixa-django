@@ -15,6 +15,7 @@ from .serializers import (
     EmployeeUpdateSerializer,
 )
 from .permissions import IsDoctor, IsClinicOwner
+from apps.core.swagger import PAGINATION_PARAMETERS, PAGINATION_DESCRIPTION
 
 
 # ============================================================================
@@ -32,11 +33,11 @@ class ClinicListAPIView(generics.ListAPIView):
     @swagger_auto_schema(
         operation_id='getClinics',
         operation_summary='List clinics',
-        operation_description='Get a list of all clinics with statistics. This endpoint is public and does not require authentication.',
+        operation_description='Get a list of all clinics with statistics. This endpoint is public and does not require authentication.' + PAGINATION_DESCRIPTION,
         tags=['Clinics'],
         manual_parameters=[
             openapi.Parameter('doctor', openapi.IN_QUERY, description='Filter by doctor ID', type=openapi.TYPE_INTEGER),
-        ]
+        ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -136,11 +137,11 @@ class EmployeeListAPIView(generics.ListAPIView):
     @swagger_auto_schema(
         operation_id='getEmployees',
         operation_summary='List employees',
-        operation_description='Get a list of employees in your clinics. Only doctors can access this endpoint.',
+        operation_description='Get a list of employees in your clinics. Only doctors can access this endpoint.' + PAGINATION_DESCRIPTION,
         tags=['Employees'],
         manual_parameters=[
             openapi.Parameter('clinic', openapi.IN_QUERY, description='Filter by clinic ID', type=openapi.TYPE_INTEGER),
-        ]
+        ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)

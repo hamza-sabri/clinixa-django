@@ -17,11 +17,11 @@ app_name = 'vitals'
 
 urlpatterns = [
     # Vitals
-    path('vitals/', VitalListAPIView.as_view(), name='vital-list'),
-    path('vitals/<int:pk>/', VitalDetailAPIView.as_view(), name='vital-detail'),
-    path('vitals/create/', VitalCreateAPIView.as_view(), name='vital-create'),
-    path('vitals/<int:pk>/update/', VitalUpdateAPIView.as_view(), name='vital-update'),
-    path('vitals/<int:pk>/delete/', VitalDeleteAPIView.as_view(), name='vital-delete'),
+    path('', VitalListAPIView.as_view(), name='vital-list'),
+    path('<int:pk>/', VitalDetailAPIView.as_view(), name='vital-detail'),
+    path('create/', VitalCreateAPIView.as_view(), name='vital-create'),
+    path('<int:pk>/update/', VitalUpdateAPIView.as_view(), name='vital-update'),
+    path('<int:pk>/delete/', VitalDeleteAPIView.as_view(), name='vital-delete'),
     
     # Baby Vitals
     path('baby-vitals/', BabyVitalListAPIView.as_view(), name='baby-vital-list'),
