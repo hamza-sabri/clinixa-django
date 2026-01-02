@@ -257,6 +257,242 @@ class CustomTokenRefreshView(TokenRefreshView):
 
 
 # ============================================================================
+# PATIENT OTP AUTHENTICATION VIEWS
+# ============================================================================
+
+from .serializers import (
+    RequestOTPSerializer,
+    VerifyOTPSerializer,
+    OTPResponseSerializer,
+    OTPLoginResponseSerializer,
+    PatientUserSerializer,
+    PatientMeSerializer,
+    PatientMeUpdateSerializer,
+)
+from . import otp_service
+
+
+class RequestOTPView(APIView):
+    """
+    Request OTP for patient login.
+    
+    Sends an OTP to the patient's phone number for authentication.
+    Creates OTP record and triggers SMS (mocked for now).
+    """
+    permission_classes = [AllowAny]
+    
+    @swagger_auto_schema(
+        operation_id='postPatientRequestOtp',
+        operation_summary='Request OTP for patient login',
+        operation_description='''
+Request an OTP code to be sent to the patient's phone number.
+
+**Rate Limiting:** Maximum 3 requests per minute per phone number.
+**OTP Expiry:** 5 minutes (300 seconds).
+
+If the phone number is new, a new patient account will be created upon successful OTP verification.
+        ''',
+        tags=['Patient Auth'],
+        request_body=RequestOTPSerializer,
+        responses={
+            200: OTPResponseSerializer,
+            429: openapi.Response(description='Too many requests')
+        }
+    )
+    def post(self, request):
+        serializer = RequestOTPSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        phone = serializer.validated_data['phone']
+        
+        # Check rate limiting
+        rate_limit = otp_service.is_rate_limited(phone)
+        if rate_limit['limited']:
+            return Response({
+                'error': f"Too many requests. Please wait {rate_limit['wait_seconds']} seconds."
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        
+        # Generate and send OTP
+        result = otp_service.create_otp_verification(phone)
+        
+        # Check if user exists
+        is_new_user = not otp_service.check_user_exists(phone)
+        
+        return Response({
+            'message': 'OTP sent successfully',
+            'phone': phone,
+            'expires_in': result['expires_in'],
+            'is_new_user': is_new_user
+        }, status=status.HTTP_200_OK)
+
+
+class VerifyOTPView(APIView):
+    """
+    Verify OTP and login patient.
+    
+    Verifies the OTP code and returns JWT tokens.
+    For new users, creates the patient account and profile.
+    """
+    permission_classes = [AllowAny]
+    
+    @swagger_auto_schema(
+        operation_id='postPatientVerifyOtp',
+        operation_summary='Verify OTP and login patient',
+        operation_description='''
+Verify the OTP code and authenticate the patient.
+
+**For new users:** 
+- A new patient account is created
+- PatientProfile is auto-created
+- The `name` field is recommended for new users
+
+**Returns:** JWT access and refresh tokens with user info.
+        ''',
+        tags=['Patient Auth'],
+        request_body=VerifyOTPSerializer,
+        responses={
+            200: OTPLoginResponseSerializer,
+            400: openapi.Response(description='Invalid or expired OTP')
+        }
+    )
+    def post(self, request):
+        serializer = VerifyOTPSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        phone = serializer.validated_data['phone']
+        otp_code = serializer.validated_data['otp']
+        name = serializer.validated_data.get('name', '')
+        
+        # Verify OTP
+        result = otp_service.verify_otp(phone, otp_code)
+        
+        if not result['success']:
+            return Response({'error': result['error']}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get or create user
+        is_new_user = False
+        try:
+            user = User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            # Create new patient user
+            user = User.objects.create_user_with_phone(phone=phone, name=name)
+            is_new_user = True
+        
+        # Ensure patient profile exists
+        if not hasattr(user, 'patient_profile'):
+            PatientProfile.objects.create(user=user)
+        
+        # Update name if provided and user already exists
+        if name and not is_new_user and not user.name:
+            user.name = name
+            user.save(update_fields=['name'])
+        
+        # Generate tokens
+        tokens = get_tokens_for_user(user)
+        
+        return Response({
+            'access': tokens['access'],
+            'refresh': tokens['refresh'],
+            'user': PatientUserSerializer(user).data,
+            'is_new_user': is_new_user
+        }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# PATIENT SELF-SERVICE VIEWS
+# ============================================================================
+
+class PatientMeView(APIView):
+    """
+    Get or update current patient's own profile.
+    
+    GET: Returns the authenticated patient's complete profile data.
+    PATCH: Updates the patient's name and/or profile fields.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_id='getPatientMe',
+        operation_summary='Get current patient profile',
+        operation_description='''
+Get the authenticated patient's own profile data.
+
+**Returns:**
+- User info (id, email, phone, name)
+- PatientProfile (blood_type, allergies, medical_history)
+- All pregnancies with details
+- Ongoing pregnancy info (if any)
+
+**Note:** Only accessible by patients (user_type='patient').
+        ''',
+        tags=['Patient Self-Service'],
+        responses={
+            200: PatientMeSerializer,
+            403: openapi.Response(description='Not a patient user')
+        }
+    )
+    def get(self, request):
+        if request.user.user_type != 'patient':
+            return Response(
+                {'error': 'This endpoint is only for patient users'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = PatientMeSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    @swagger_auto_schema(
+        operation_id='patchPatientMe',
+        operation_summary='Update current patient profile',
+        operation_description='''
+Update the authenticated patient's own profile.
+
+**Updatable fields:**
+- `name` - Patient's display name
+- `profile` - Object containing:
+  - `blood_type` - Blood type (A+, B-, AB+, O-, etc.)
+  - `allergies` - Known allergies
+  - `medical_history` - Medical history notes
+  - `notes` - Additional notes
+
+**Example request:**
+```json
+{
+    "name": "فاطمة أحمد",
+    "profile": {
+        "blood_type": "A+",
+        "allergies": "Penicillin"
+    }
+}
+```
+        ''',
+        tags=['Patient Self-Service'],
+        request_body=PatientMeUpdateSerializer,
+        responses={
+            200: PatientMeSerializer,
+            403: openapi.Response(description='Not a patient user')
+        }
+    )
+    def patch(self, request):
+        if request.user.user_type != 'patient':
+            return Response(
+                {'error': 'This endpoint is only for patient users'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = PatientMeUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer.update(request.user, serializer.validated_data)
+        
+        output_serializer = PatientMeSerializer(request.user)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
+
+
+# ============================================================================
 # PATIENT VIEWS
 # ============================================================================
 

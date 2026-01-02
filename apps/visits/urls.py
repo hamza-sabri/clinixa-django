@@ -6,6 +6,8 @@ from .views import (
     VisitCreateAPIView,
     VisitUpdateAPIView,
     VisitDeleteAPIView,
+    VisitCancelView,
+    VisitRescheduleView,
 )
 
 app_name = 'visits'
@@ -16,4 +18,7 @@ urlpatterns = [
     path('visits/create/', VisitCreateAPIView.as_view(), name='visit-create'),
     path('visits/<int:pk>/update/', VisitUpdateAPIView.as_view(), name='visit-update'),
     path('visits/<int:pk>/delete/', VisitDeleteAPIView.as_view(), name='visit-delete'),
+    # Patient self-service endpoints
+    path('visits/<int:pk>/cancel/', VisitCancelView.as_view(), name='visit-cancel'),
+    path('visits/<int:pk>/reschedule/', VisitRescheduleView.as_view(), name='visit-reschedule'),
 ]

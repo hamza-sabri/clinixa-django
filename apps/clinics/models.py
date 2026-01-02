@@ -15,6 +15,39 @@ class Clinic(models.Model):
     location = models.CharField('location', max_length=500)
     phone = models.CharField('phone number', max_length=20)
     type = models.CharField('clinic type', max_length=100, default='عيادة اطفال')
+    
+    # New fields for patient portal
+    working_hours = models.JSONField(
+        'working hours',
+        default=dict,
+        blank=True,
+        help_text='Working hours per day, e.g. {"sunday": {"open": "09:00", "close": "17:00"}, "friday": null}'
+    )
+    slot_duration = models.IntegerField(
+        'slot duration (minutes)',
+        default=30,
+        help_text='Appointment slot duration in minutes'
+    )
+    latitude = models.DecimalField(
+        'latitude',
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True
+    )
+    longitude = models.DecimalField(
+        'longitude',
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True
+    )
+    description = models.TextField('description', blank=True)
+    is_accepting_new_patients = models.BooleanField(
+        'accepting new patients',
+        default=True
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

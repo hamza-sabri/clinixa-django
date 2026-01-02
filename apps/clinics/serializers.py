@@ -18,7 +18,10 @@ class ClinicSerializer(serializers.ModelSerializer):
         model = Clinic
         fields = [
             'id', 'doctor', 'doctor_name', 'doctor_email',
-            'name', 'location', 'phone', 'type', 'created_at'
+            'name', 'location', 'phone', 'type', 
+            'working_hours', 'slot_duration', 'description',
+            'latitude', 'longitude', 'is_accepting_new_patients',
+            'created_at'
         ]
         read_only_fields = ['id', 'doctor', 'doctor_name', 'doctor_email', 'created_at']
     
@@ -31,6 +34,7 @@ class ClinicSerializer(serializers.ModelSerializer):
 class ClinicListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for clinic lists with statistics."""
     
+    doctor_name = serializers.CharField(source='doctor.name', read_only=True)
     visits_per_status = serializers.SerializerMethodField()
     distinct_patients_count = serializers.SerializerMethodField()
     employees_count = serializers.SerializerMethodField()
@@ -38,7 +42,9 @@ class ClinicListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Clinic
         fields = [
-            'id', 'name', 'location', 'phone', 'type',
+            'id', 'name', 'doctor_name', 'location', 'phone', 'type',
+            'working_hours', 'slot_duration', 'is_accepting_new_patients',
+            'description', 'latitude', 'longitude',
             'visits_per_status', 'distinct_patients_count', 'employees_count'
         ]
     
@@ -51,8 +57,7 @@ class ClinicListSerializer(serializers.ModelSerializer):
     def get_distinct_patients_count(self, obj):
         """Get count of distinct patients who have visited this clinic."""
         from apps.visits.models import Visit
-        print(Visit.objects.filter(clinic=obj).values('patient').distinct())
-        return Visit.objects.filter(clinic=obj).values('patient').distinct().count()
+        return Visit.objects.filter(clinic=obj).values('pregnancy').distinct().count()
     
     def get_employees_count(self, obj):
         """Get total number of employees at this clinic."""
@@ -72,8 +77,11 @@ class ClinicDetailSerializer(serializers.ModelSerializer):
         model = Clinic
         fields = [
             'id', 'doctor', 'doctor_name', 'doctor_email',
-            'name', 'location', 'phone', 'type', 'created_at',
-            'visits_per_status', 'distinct_patients_count', 'employees_count'
+            'name', 'location', 'phone', 'type',
+            'working_hours', 'slot_duration', 'description',
+            'latitude', 'longitude', 'is_accepting_new_patients',
+            'visits_per_status', 'distinct_patients_count', 'employees_count',
+            'created_at'
         ]
         read_only_fields = ['id', 'doctor', 'doctor_name', 'doctor_email', 'created_at']
     

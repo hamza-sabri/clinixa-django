@@ -225,6 +225,181 @@ class TokenResponseSerializer(serializers.Serializer):
 
 
 # ============================================================================
+# OTP AUTHENTICATION SERIALIZERS
+# ============================================================================
+
+class RequestOTPSerializer(serializers.Serializer):
+    """Serializer for requesting OTP for patient login."""
+    
+    phone = serializers.CharField(
+        max_length=20,
+        help_text='Phone number in international format, e.g. +971501234567'
+    )
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text='Patient name (optional for returning users, required for new users)'
+    )
+    
+    def validate_phone(self, value):
+        """Validate and normalize phone number."""
+        # Remove any spaces or dashes
+        value = value.replace(' ', '').replace('-', '')
+        
+        # Basic validation - should start with + and have at least 10 digits
+        if not value.startswith('+'):
+            raise serializers.ValidationError('Phone number must be in international format (starting with +)')
+        if len(value) < 10:
+            raise serializers.ValidationError('Phone number is too short')
+        
+        return value
+
+
+class VerifyOTPSerializer(serializers.Serializer):
+    """Serializer for verifying OTP and logging in patient."""
+    
+    phone = serializers.CharField(
+        max_length=20,
+        help_text='Phone number used to request OTP'
+    )
+    otp = serializers.CharField(
+        max_length=6,
+        min_length=6,
+        help_text='6-digit OTP code received via SMS'
+    )
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text='Patient name (required only for new users)'
+    )
+    
+    def validate_phone(self, value):
+        """Validate and normalize phone number."""
+        return value.replace(' ', '').replace('-', '')
+
+
+class OTPResponseSerializer(serializers.Serializer):
+    """Response serializer for OTP request - used in Swagger documentation."""
+    
+    message = serializers.CharField()
+    phone = serializers.CharField()
+    expires_in = serializers.IntegerField(help_text='Seconds until OTP expires')
+    is_new_user = serializers.BooleanField(help_text='True if this is a new patient')
+
+
+class PatientUserSerializer(serializers.ModelSerializer):
+    """User serializer for patient responses - hides placeholder emails."""
+    
+    email = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'name', 'phone', 'user_type', 'created_at']
+        read_only_fields = ['id', 'created_at']
+    
+    def get_email(self, obj):
+        """Return None for placeholder emails (phone-only users)."""
+        if obj.email and obj.email.endswith('@clinixa-phone.local'):
+            return None
+        return obj.email
+
+
+class OTPLoginResponseSerializer(serializers.Serializer):
+    """Response serializer for OTP verification - used in Swagger documentation."""
+    
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+    user = PatientUserSerializer()
+    is_new_user = serializers.BooleanField()
+
+
+# ============================================================================
+# PATIENT SELF-SERVICE SERIALIZERS
+# ============================================================================
+
+class PatientMeSerializer(serializers.ModelSerializer):
+    """Serializer for /patients/me/ endpoint - authenticated patient's own data."""
+    
+    profile = serializers.SerializerMethodField()
+    pregnancies = serializers.SerializerMethodField()
+    pregnancies_count = serializers.SerializerMethodField()
+    ongoing_pregnancy = serializers.SerializerMethodField()
+    email = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'phone', 'name', 'user_type',
+            'profile', 'pregnancies', 'pregnancies_count', 'ongoing_pregnancy',
+            'created_at'
+        ]
+        read_only_fields = ['id', 'user_type', 'created_at']
+    
+    def get_email(self, obj):
+        """Return None for placeholder emails (phone-only users)."""
+        if obj.email and obj.email.endswith('@clinixa-phone.local'):
+            return None
+        return obj.email
+    
+    def get_profile(self, obj):
+        if hasattr(obj, 'patient_profile'):
+            return PatientProfileSerializer(obj.patient_profile).data
+        return None
+    
+    def get_pregnancies(self, obj):
+        if hasattr(obj, 'patient_profile'):
+            pregnancies = obj.patient_profile.pregnancies.order_by('-due_date')
+            return PregnancyListSerializer(pregnancies, many=True).data
+        return []
+    
+    def get_pregnancies_count(self, obj):
+        if hasattr(obj, 'patient_profile'):
+            return obj.patient_profile.pregnancies.count()
+        return 0
+    
+    def get_ongoing_pregnancy(self, obj):
+        if hasattr(obj, 'patient_profile'):
+            ongoing = obj.patient_profile.pregnancies.filter(status='ongoing').order_by('-due_date').first()
+            if ongoing:
+                return PregnancyDetailSerializer(ongoing).data
+        return None
+
+
+class PatientMeUpdateSerializer(serializers.Serializer):
+    """Serializer for updating patient's own profile via PATCH /patients/me/."""
+    
+    name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    profile = serializers.DictField(required=False, help_text='Profile fields: blood_type, allergies, medical_history, notes')
+    
+    def update(self, instance, validated_data):
+        # Update name if provided
+        if 'name' in validated_data:
+            instance.name = validated_data['name']
+            instance.save(update_fields=['name'])
+        
+        # Update profile if provided
+        profile_data = validated_data.get('profile', {})
+        if profile_data:
+            from .models import PatientProfile
+            profile, created = PatientProfile.objects.get_or_create(user=instance)
+            
+            if 'blood_type' in profile_data:
+                profile.blood_type = profile_data['blood_type']
+            if 'allergies' in profile_data:
+                profile.allergies = profile_data['allergies']
+            if 'medical_history' in profile_data:
+                profile.medical_history = profile_data['medical_history']
+            if 'notes' in profile_data:
+                profile.notes = profile_data['notes']
+            
+            profile.save()
+        
+        return instance
+
+
+# ============================================================================
 # PATIENT PROFILE SERIALIZERS
 # ============================================================================
 

@@ -7,11 +7,16 @@ from .views import (
     PatientUpdateAPIView,
     PatientPregnancyListAPIView,
     PatientPregnancyCreateAPIView,
+    PatientMeView,
 )
 
 app_name = 'patients'
 
 urlpatterns = [
+    # Patient self-service endpoint
+    path('me/', PatientMeView.as_view(), name='patient-me'),
+    
+    # Admin/staff patient management
     path('', PatientListAPIView.as_view(), name='patient-list'),
     path('create/', PatientCreateAPIView.as_view(), name='patient-create'),
     path('<int:pk>/', PatientDetailAPIView.as_view(), name='patient-detail'),

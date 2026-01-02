@@ -47,6 +47,21 @@ class Visit(models.Model):
     )
     note = models.TextField('patient note', blank=True)
     urgency = models.CharField('urgency level', max_length=50, blank=True)
+    
+    # Cancellation tracking fields
+    cancelled_at = models.DateTimeField('cancelled at', null=True, blank=True)
+    cancelled_by = models.CharField(
+        'cancelled by',
+        max_length=20,
+        blank=True,
+        help_text='Who cancelled: patient or clinic'
+    )
+    cancellation_reason = models.TextField('cancellation reason', blank=True)
+    
+    # Reschedule tracking fields
+    rescheduled_at = models.DateTimeField('rescheduled at', null=True, blank=True)
+    previous_time = models.DateTimeField('previous appointment time', null=True, blank=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

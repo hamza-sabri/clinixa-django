@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import User
+from .models import User, PatientProfile, Pregnancy, Baby, OTPVerification
 
 
 @admin.register(User)
@@ -31,5 +31,35 @@ class UserAdmin(BaseUserAdmin):
     )
 
 
+@admin.register(PatientProfile)
+class PatientProfileAdmin(admin.ModelAdmin):
+    """Admin configuration for PatientProfile model."""
+    list_display = ('user', 'blood_type', 'created_at')
+    search_fields = ('user__name', 'user__email', 'user__phone')
+    list_filter = ('blood_type', 'created_at')
 
 
+@admin.register(Pregnancy)
+class PregnancyAdmin(admin.ModelAdmin):
+    """Admin configuration for Pregnancy model."""
+    list_display = ('patient_profile', 'status', 'due_date', 'is_high_risk', 'created_at')
+    list_filter = ('status', 'is_high_risk', 'created_at')
+    search_fields = ('patient_profile__user__name', 'patient_profile__user__email')
+
+
+@admin.register(Baby)
+class BabyAdmin(admin.ModelAdmin):
+    """Admin configuration for Baby model."""
+    list_display = ('name', 'pregnancy', 'gender', 'is_born', 'birth_date')
+    list_filter = ('gender', 'is_born', 'created_at')
+    search_fields = ('name', 'pregnancy__patient_profile__user__name')
+
+
+@admin.register(OTPVerification)
+class OTPVerificationAdmin(admin.ModelAdmin):
+    """Admin configuration for OTPVerification model."""
+    list_display = ('phone', 'otp_code', 'is_used', 'attempts', 'created_at', 'expires_at')
+    list_filter = ('is_used', 'created_at')
+    search_fields = ('phone',)
+    readonly_fields = ('otp_code', 'created_at', 'expires_at')
+    ordering = ('-created_at',)

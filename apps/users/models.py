@@ -3,15 +3,37 @@ from django.db import models
 
 
 class UserManager(BaseUserManager):
-    """Custom user manager that uses email as the unique identifier."""
+    """Custom user manager that supports email or phone as unique identifier."""
     
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, email=None, password=None, **extra_fields):
         """Create and save a regular user with the given email and password."""
-        if not email:
-            raise ValueError('The Email field must be set')
-        email = self.normalize_email(email)
+        if email:
+            email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
-        user.set_password(password)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        user.save(using=self._db)
+        return user
+    
+    def create_user_with_phone(self, phone, name='', **extra_fields):
+        """Create and save a patient user with phone number only.
+        
+        Generates a placeholder email based on phone number.
+        """
+        if not phone:
+            raise ValueError('The Phone field must be set')
+        
+        # Generate placeholder email from phone number
+        placeholder_email = f"{phone.replace('+', '')}@clinixa-phone.local"
+        
+        extra_fields.setdefault('user_type', 'patient')
+        extra_fields.setdefault('phone', phone)
+        extra_fields.setdefault('name', name)
+        
+        user = self.model(email=placeholder_email, **extra_fields)
+        user.set_unusable_password()
         user.save(using=self._db)
         return user
 
@@ -25,6 +47,9 @@ class UserManager(BaseUserManager):
             raise ValueError('Superuser must have is_staff=True.')
         if extra_fields.get('is_superuser') is not True:
             raise ValueError('Superuser must have is_superuser=True.')
+        
+        if not email:
+            raise ValueError('Superuser must have an email.')
 
         return self.create_user(email, password, **extra_fields)
 
@@ -43,7 +68,14 @@ class User(AbstractUser):
     
     # Additional fields
     name = models.CharField('full name', max_length=255, blank=True)
-    phone = models.CharField('phone number', max_length=20, blank=True)
+    phone = models.CharField(
+        'phone number',
+        max_length=20,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text='Unique phone number for OTP authentication'
+    )
     user_type = models.CharField(
         'user type',
         max_length=20,
@@ -64,7 +96,11 @@ class User(AbstractUser):
         ordering = ['-created_at']
     
     def __str__(self):
-        return self.name or self.email
+        if self.name:
+            return self.name
+        if self.email and not self.email.endswith('@clinixa-phone.local'):
+            return self.email
+        return self.phone or 'Unknown User'
     
     @property
     def is_doctor(self):
@@ -214,4 +250,43 @@ class Baby(models.Model):
         return f"Baby - {self.pregnancy}"
 
 
-
+class OTPVerification(models.Model):
+    """
+    Stores OTP codes for phone verification.
+    Used for patient authentication via phone number.
+    """
+    phone = models.CharField('phone number', max_length=20, db_index=True)
+    otp_code = models.CharField('OTP code', max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField('expires at')
+    is_used = models.BooleanField('is used', default=False)
+    attempts = models.IntegerField('verification attempts', default=0)
+    
+    class Meta:
+        verbose_name = 'OTP verification'
+        verbose_name_plural = 'OTP verifications'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"OTP for {self.phone} - {'Used' if self.is_used else 'Active'}"
+    
+    @property
+    def is_expired(self):
+        """Check if the OTP has expired."""
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
+    
+    @property
+    def is_valid(self):
+        """Check if OTP is still valid (not expired and not used)."""
+        return not self.is_expired and not self.is_used
+    
+    def mark_as_used(self):
+        """Mark the OTP as used."""
+        self.is_used = True
+        self.save(update_fields=['is_used'])
+    
+    def increment_attempts(self):
+        """Increment the verification attempts counter."""
+        self.attempts += 1
+        self.save(update_fields=['attempts'])

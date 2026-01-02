@@ -66,6 +66,22 @@ class VitalListAPIView(VitalQuerySetMixin, generics.ListAPIView):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['pregnancy', 'visit']
     
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Handle patient=me filter
+        patient_filter = self.request.query_params.get('patient')
+        if patient_filter == 'me' and self.request.user.user_type == 'patient':
+            if hasattr(self.request.user, 'patient_profile'):
+                queryset = queryset.filter(
+                    Q(pregnancy__patient_profile=self.request.user.patient_profile) |
+                    Q(patient=self.request.user)
+                )
+            else:
+                queryset = queryset.filter(patient=self.request.user)
+        
+        return queryset
+    
     @swagger_auto_schema(
         operation_id='getVitals',
         operation_summary='List vital records',
@@ -77,11 +93,13 @@ Get a list of vital records (mother's vitals).
 - Doctors/employees see vitals of patients who visited their clinics
 
 **Filters:**
+- `?patient=me` - (For patients) Get only your own vitals
 - `?pregnancy=` - Filter by pregnancy ID
 - `?visit=` - Filter by visit ID
         ''' + PAGINATION_DESCRIPTION,
         tags=['Vitals'],
         manual_parameters=[
+            openapi.Parameter('patient', openapi.IN_QUERY, description='Filter by patient (use "me" for own vitals)', type=openapi.TYPE_STRING),
             openapi.Parameter('pregnancy', openapi.IN_QUERY, description='Filter by pregnancy ID', type=openapi.TYPE_INTEGER),
             openapi.Parameter('visit', openapi.IN_QUERY, description='Filter by visit ID', type=openapi.TYPE_INTEGER),
         ] + PAGINATION_PARAMETERS

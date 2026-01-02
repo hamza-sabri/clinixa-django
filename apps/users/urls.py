@@ -7,6 +7,11 @@ from .views import (
     SigninView,
     ForgetPasswordView,
     CustomTokenRefreshView,
+    # Patient OTP Auth views
+    RequestOTPView,
+    VerifyOTPView,
+    # Patient self-service views
+    PatientMeView,
     # Patient views
     PatientListAPIView,
     PatientDetailAPIView,
@@ -35,6 +40,10 @@ urlpatterns = [
     path('signin/', SigninView.as_view(), name='signin'),
     path('forget-password/', ForgetPasswordView.as_view(), name='forget-password'),
     path('token/refresh/', CustomTokenRefreshView.as_view(), name='token-refresh'),
+    
+    # Patient OTP authentication endpoints
+    path('request-otp/', RequestOTPView.as_view(), name='patient-request-otp'),
+    path('verify-otp/', VerifyOTPView.as_view(), name='patient-verify-otp'),
 ]
 
 # Patient URLs - to be mounted at /api/patients/
