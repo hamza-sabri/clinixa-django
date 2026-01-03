@@ -331,7 +331,7 @@ class PatientMeSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'phone', 'name', 'user_type',
+            'id', 'email', 'phone', 'name', 'user_type', 'birth_date',
             'profile', 'pregnancies', 'pregnancies_count', 'ongoing_pregnancy',
             'created_at'
         ]
@@ -371,13 +371,26 @@ class PatientMeUpdateSerializer(serializers.Serializer):
     """Serializer for updating patient's own profile via PATCH /patients/me/."""
     
     name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    birth_date = serializers.DateField(required=False, allow_null=True, help_text='Patient birth date (YYYY-MM-DD)')
     profile = serializers.DictField(required=False, help_text='Profile fields: blood_type, allergies, medical_history, notes')
     
     def update(self, instance, validated_data):
+        # Collect fields to update on the user instance
+        update_fields = []
+        
         # Update name if provided
         if 'name' in validated_data:
             instance.name = validated_data['name']
-            instance.save(update_fields=['name'])
+            update_fields.append('name')
+        
+        # Update birth_date if provided
+        if 'birth_date' in validated_data:
+            instance.birth_date = validated_data['birth_date']
+            update_fields.append('birth_date')
+        
+        # Save user instance if any fields were updated
+        if update_fields:
+            instance.save(update_fields=update_fields)
         
         # Update profile if provided
         profile_data = validated_data.get('profile', {})
@@ -647,6 +660,23 @@ class PregnancyCreateSerializer(serializers.ModelSerializer):
             'is_high_risk': {'required': False},
             'notes': {'required': False},
             'created_by_clinic': {'required': False},
+        }
+
+
+class PatientMePregnancyCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for patient self-service pregnancy creation.
+    Excludes created_by_clinic as patients don't set this field.
+    """
+    
+    class Meta:
+        model = Pregnancy
+        fields = ['lmp', 'due_date', 'is_high_risk', 'notes']
+        extra_kwargs = {
+            'lmp': {'required': False, 'help_text': 'Last menstrual period date (YYYY-MM-DD)'},
+            'due_date': {'required': False, 'help_text': 'Expected due date (YYYY-MM-DD)'},
+            'is_high_risk': {'required': False, 'default': False, 'help_text': 'Is this a high-risk pregnancy?'},
+            'notes': {'required': False, 'help_text': 'Additional notes'},
         }
 
 

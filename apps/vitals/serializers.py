@@ -26,7 +26,7 @@ class VitalSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'pregnancy', 'pregnancy_week', 'visit', 'visit_id', 'visit_time',
             'patient_id', 'patient_name', 'patient_email',
-            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight',
+            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight', 'sugar_level',
             'reading_date', 'files', 'mood', 'note', 'dr_note', 
             'created_at', 'updated_at'
         ]
@@ -71,7 +71,7 @@ class VitalListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'pregnancy', 'pregnancy_week', 'visit',
             'patient_id', 'patient_name',
-            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight',
+            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight', 'sugar_level',
             'reading_date', 'mood'
         ]
     
@@ -108,7 +108,7 @@ class VitalCreateSerializer(serializers.ModelSerializer):
         model = Vital
         fields = [
             'pregnancy', 'visit',
-            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight',
+            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight', 'sugar_level',
             'reading_date', 'files', 'mood', 'note', 'dr_note', 'uploaded_files'
         ]
         extra_kwargs = {
@@ -142,7 +142,7 @@ class VitalUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vital
         fields = [
-            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight',
+            'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight', 'sugar_level',
             'reading_date', 'files', 'mood', 'note', 'dr_note', 'uploaded_files'
         ]
     

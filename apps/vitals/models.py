@@ -42,6 +42,12 @@ class Vital(models.Model):
     puls = models.IntegerField('pulse rate', null=True, blank=True)
     temp = models.FloatField('temperature', null=True, blank=True)
     weight = models.FloatField('weight (kg)', null=True, blank=True)
+    sugar_level = models.IntegerField(
+        'blood glucose level',
+        null=True,
+        blank=True,
+        help_text='Blood glucose level in mg/dL'
+    )
     reading_date = models.DateTimeField('reading date', null=True, blank=True)
     files = models.JSONField('attached files', default=list, blank=True)  # Array of Cloudinary URLs
     mood = models.CharField('mood', max_length=100, blank=True)

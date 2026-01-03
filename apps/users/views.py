@@ -2,7 +2,6 @@ from rest_framework import status, generics, filters
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 from django_filters.rest_framework import DjangoFilterBackend
 from django.contrib.auth import get_user_model
@@ -492,6 +491,95 @@ Update the authenticated patient's own profile.
         return Response(output_serializer.data, status=status.HTTP_200_OK)
 
 
+class PatientMePregnancyCreateView(generics.CreateAPIView):
+    """
+    Create a new pregnancy for the authenticated patient.
+    
+    POST /api/patients/me/pregnancies/create/
+    
+    Allows patients to create their own pregnancy records.
+    Automatically creates PatientProfile if it doesn't exist.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import PatientMePregnancyCreateSerializer
+        return PatientMePregnancyCreateSerializer
+    
+    @swagger_auto_schema(
+        operation_id='postPatientMePregnancy',
+        operation_summary='Create pregnancy for current patient',
+        operation_description='''
+Create a new pregnancy record for the authenticated patient.
+
+**Note:** This endpoint is only for patients (user_type='patient').
+
+**All fields are optional:**
+- `lmp` - Last menstrual period date (YYYY-MM-DD)
+- `due_date` - Expected due date (YYYY-MM-DD)
+- `is_high_risk` - Whether this is a high-risk pregnancy (default: false)
+- `notes` - Additional notes
+
+**Example request:**
+```json
+{
+    "lmp": "2024-01-15",
+    "due_date": "2024-10-22",
+    "is_high_risk": false,
+    "notes": "First pregnancy"
+}
+```
+
+**Returns:** Full pregnancy details including calculated fields (pregnancy_week, trimester).
+        ''',
+        tags=['Patient Self-Service'],
+        responses={
+            201: openapi.Response(
+                description='Pregnancy created successfully',
+                examples={
+                    'application/json': {
+                        'id': 123,
+                        'patient': {'id': 456, 'name': 'فاطمة أحمد', 'email': None, 'phone': '+971501234567'},
+                        'lmp': '2024-01-15',
+                        'due_date': '2024-10-22',
+                        'status': 'ongoing',
+                        'is_high_risk': False,
+                        'pregnancy_week': 12,
+                        'trimester': 1,
+                        'notes': 'First pregnancy',
+                        'babies': [],
+                        'visits_count': 0,
+                        'vitals_count': 0,
+                        'created_at': '2024-01-20T10:30:00Z'
+                    }
+                }
+            ),
+            403: openapi.Response(description='Not a patient user')
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        # Ensure only patients can access
+        if request.user.user_type != 'patient':
+            return Response(
+                {'error': 'This endpoint is only for patient users'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get or create patient profile
+        profile, _ = PatientProfile.objects.get_or_create(user=request.user)
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Save with the patient profile
+        pregnancy = serializer.save(patient_profile=profile)
+        
+        # Return full pregnancy details
+        from .serializers import PregnancyDetailSerializer
+        output_serializer = PregnancyDetailSerializer(pregnancy)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+
+
 # ============================================================================
 # PATIENT VIEWS
 # ============================================================================
@@ -524,6 +612,8 @@ class PatientQuerySetMixin:
             legacy_patient_ids = Visit.objects.filter(clinic_id__in=clinic_ids, patient__isnull=False).values_list('patient_id', flat=True).distinct()
             all_patient_ids = set(patient_ids) | set(legacy_patient_ids)
             return User.objects.filter(id__in=all_patient_ids, user_type='patient').select_related('patient_profile').distinct()
+        elif user.user_type == 'patient' and hasattr(user, 'patient_profile'):
+            return User.objects.filter(id=user.id, user_type='patient').select_related('patient_profile').distinct()
         
         return User.objects.none()
 

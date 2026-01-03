@@ -9,14 +9,14 @@ from .models import User, PatientProfile, Pregnancy, Baby, OTPVerification
 class UserAdmin(BaseUserAdmin):
     """Admin configuration for custom User model."""
     
-    list_display = ('email', 'name', 'phone', 'user_type', 'is_active', 'created_at')
+    list_display = ('email', 'name', 'phone', 'user_type', 'is_active', 'created_at', 'birth_date')
     list_filter = ('user_type', 'is_active', 'is_staff', 'created_at')
     search_fields = ('email', 'name', 'phone')
     ordering = ('-created_at',)
     
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
-        (_('Personal info'), {'fields': ('name', 'phone', 'user_type')}),
+        (_('Personal info'), {'fields': ('name', 'phone', 'user_type', 'birth_date')}),
         (_('Permissions'), {
             'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions'),
         }),
@@ -35,7 +35,7 @@ class UserAdmin(BaseUserAdmin):
 class PatientProfileAdmin(admin.ModelAdmin):
     """Admin configuration for PatientProfile model."""
     list_display = ('user', 'blood_type', 'created_at')
-    search_fields = ('user__name', 'user__email', 'user__phone')
+    search_fields = ('user__name', 'user__email', 'user__phone', 'birth_date')
     list_filter = ('blood_type', 'created_at')
 
 

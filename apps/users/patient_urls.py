@@ -8,13 +8,15 @@ from .views import (
     PatientPregnancyListAPIView,
     PatientPregnancyCreateAPIView,
     PatientMeView,
+    PatientMePregnancyCreateView,
 )
 
 app_name = 'patients'
 
 urlpatterns = [
-    # Patient self-service endpoint
+    # Patient self-service endpoints
     path('me/', PatientMeView.as_view(), name='patient-me'),
+    path('me/pregnancies/create/', PatientMePregnancyCreateView.as_view(), name='patient-me-pregnancy-create'),
     
     # Admin/staff patient management
     path('', PatientListAPIView.as_view(), name='patient-list'),

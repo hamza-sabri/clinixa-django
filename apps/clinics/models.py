@@ -47,6 +47,11 @@ class Clinic(models.Model):
         'accepting new patients',
         default=True
     )
+    is_open = models.BooleanField(
+        'is open',
+        default=True,
+        help_text='Quick toggle for clinic availability'
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

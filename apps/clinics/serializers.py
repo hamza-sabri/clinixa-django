@@ -20,7 +20,7 @@ class ClinicSerializer(serializers.ModelSerializer):
             'id', 'doctor', 'doctor_name', 'doctor_email',
             'name', 'location', 'phone', 'type', 
             'working_hours', 'slot_duration', 'description',
-            'latitude', 'longitude', 'is_accepting_new_patients',
+            'latitude', 'longitude', 'is_accepting_new_patients', 'is_open',
             'created_at'
         ]
         read_only_fields = ['id', 'doctor', 'doctor_name', 'doctor_email', 'created_at']
@@ -43,7 +43,7 @@ class ClinicListSerializer(serializers.ModelSerializer):
         model = Clinic
         fields = [
             'id', 'name', 'doctor_name', 'location', 'phone', 'type',
-            'working_hours', 'slot_duration', 'is_accepting_new_patients',
+            'working_hours', 'slot_duration', 'is_accepting_new_patients', 'is_open',
             'description', 'latitude', 'longitude',
             'visits_per_status', 'distinct_patients_count', 'employees_count'
         ]
@@ -79,7 +79,7 @@ class ClinicDetailSerializer(serializers.ModelSerializer):
             'id', 'doctor', 'doctor_name', 'doctor_email',
             'name', 'location', 'phone', 'type',
             'working_hours', 'slot_duration', 'description',
-            'latitude', 'longitude', 'is_accepting_new_patients',
+            'latitude', 'longitude', 'is_accepting_new_patients', 'is_open',
             'visits_per_status', 'distinct_patients_count', 'employees_count',
             'created_at'
         ]
