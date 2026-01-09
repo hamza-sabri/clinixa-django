@@ -56,28 +56,82 @@ class VisitQuerySetMixin:
         return Visit.objects.none()
 
 
+from rest_framework.pagination import PageNumberPagination
+
+class VisitsPagination(PageNumberPagination):
+    page_size = 100
+    page_size_query_param = 'page_size'
+    max_page_size = 1000
+
 class VisitListAPIView(VisitQuerySetMixin, generics.ListAPIView):
     """GET /api/visits/ - List visits"""
     permission_classes = [IsAuthenticated]
     serializer_class = VisitListSerializer
+    pagination_class = VisitsPagination
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['clinic', 'pregnancy', 'status']
+    filterset_fields = ['clinic', 'pregnancy', 'status', 'urgency']
+    ordering = ['time']  # Default sort by time (earliest first)
     
     def get_queryset(self):
         queryset = super().get_queryset()
+        user = self.request.user
         
-        # Handle patient=me filter
+        # 1. Date Range Filter
+        from_date = self.request.query_params.get('from_date')
+        to_date = self.request.query_params.get('to_date')
+        
+        # Check if we are searching (to bypass default date filter)
+        name_param = self.request.query_params.get('name')
+        phone_param = self.request.query_params.get('phone')
+        is_searching = bool(name_param or phone_param)
+        
+        if from_date or to_date:
+            # Explicit filter provided - always respect it
+            if from_date:
+                queryset = queryset.filter(time__date__gte=from_date)
+            if to_date:
+                queryset = queryset.filter(time__date__lte=to_date)
+        else:
+            # No date filter provided - Apply defaults logic
+            if user.user_type == 'patient':
+                # Patient default: Show ALL history (no filter)
+                pass 
+            else:
+                # Doctor/Employee default: 
+                # If searching by name/phone, show ALL history (bypass default)
+                # Otherwise, show TODAY only
+                if not is_searching:
+                    today = timezone.now().date()
+                    queryset = queryset.filter(time__date=today)
+
+        # 2. Patient Name Filter
+        if name_param:
+            queryset = queryset.filter(
+                Q(pregnancy__patient_profile__user__name__icontains=name_param) |
+                Q(patient__name__icontains=name_param)
+            )
+
+        # 3. Phone Filter
+        phone_param = self.request.query_params.get('phone')
+        if phone_param:
+            # Normalize phone? For now, direct search
+            queryset = queryset.filter(
+                Q(pregnancy__patient_profile__user__phone__icontains=phone_param) |
+                Q(patient__phone__icontains=phone_param)
+            )
+
+        # Handle patient=me filter (Legacy/Patient Portal)
         patient_filter = self.request.query_params.get('patient')
-        if patient_filter == 'me' and self.request.user.user_type == 'patient':
-            if hasattr(self.request.user, 'patient_profile'):
+        if patient_filter == 'me' and user.user_type == 'patient':
+            if hasattr(user, 'patient_profile'):
                 queryset = queryset.filter(
-                    Q(pregnancy__patient_profile=self.request.user.patient_profile) |
-                    Q(patient=self.request.user)
+                    Q(pregnancy__patient_profile=user.patient_profile) |
+                    Q(patient=user)
                 )
             else:
-                queryset = queryset.filter(patient=self.request.user)
+                queryset = queryset.filter(patient=user)
         
-        return queryset
+        return queryset.order_by('time')
     
     @swagger_auto_schema(
         operation_id='getVisits',
@@ -86,22 +140,31 @@ class VisitListAPIView(VisitQuerySetMixin, generics.ListAPIView):
 Get a list of visits.
 
 **Access Control:**
-- Patients see their own visits (via pregnancy)
-- Doctors see visits to their clinics
-- Employees see visits to their assigned clinics
+- **Doctors/Employees**: See visits ONLY for their assigned clinics.
+- **Patients**: See their own visits.
 
 **Filters:**
-- `?patient=me` - (For patients) Get only your own visits
-- `?pregnancy=` - Filter by pregnancy ID
-- `?clinic=` - Filter by clinic ID
-- `?status=` - Filter by status
+- `?from_date=YYYY-MM-DD` & `?to_date=YYYY-MM-DD` - Filter by date range.
+    - **Defaults if omitted**:
+        - **Patients**: Show ALL history.
+        - **Staff**: Show **TODAY** only (from=today, to=today).
+- `?name=` - Partial search by patient name.
+- `?phone=` - Partial search by patient phone number.
+- `?clinic=` - Filter by specific clinic ID (must be one of yours).
+- `?status=` - Filter by status (e.g., 'مجدولة', 'مكتمل').
+- `?urgency=` - Filter by urgency level.
         ''' + PAGINATION_DESCRIPTION,
         tags=['Visits'],
         manual_parameters=[
+            openapi.Parameter('from_date', openapi.IN_QUERY, description='Filter from date (YYYY-MM-DD)', type=openapi.TYPE_STRING, format=openapi.FORMAT_DATE),
+            openapi.Parameter('to_date', openapi.IN_QUERY, description='Filter to date (YYYY-MM-DD)', type=openapi.TYPE_STRING, format=openapi.FORMAT_DATE),
+            openapi.Parameter('name', openapi.IN_QUERY, description='Search by patient name', type=openapi.TYPE_STRING),
+            openapi.Parameter('phone', openapi.IN_QUERY, description='Search by patient phone', type=openapi.TYPE_STRING),
             openapi.Parameter('patient', openapi.IN_QUERY, description='Filter by patient (use "me" for own visits)', type=openapi.TYPE_STRING),
             openapi.Parameter('clinic', openapi.IN_QUERY, description='Filter by clinic ID', type=openapi.TYPE_INTEGER),
             openapi.Parameter('pregnancy', openapi.IN_QUERY, description='Filter by pregnancy ID', type=openapi.TYPE_INTEGER),
             openapi.Parameter('status', openapi.IN_QUERY, description='Filter by status', type=openapi.TYPE_STRING),
+            openapi.Parameter('urgency', openapi.IN_QUERY, description='Filter by urgency', type=openapi.TYPE_STRING),
         ] + PAGINATION_PARAMETERS
     )
     def get(self, request, *args, **kwargs):
@@ -170,6 +233,39 @@ You can create vital records along with the visit:
         }
     )
     def post(self, request, *args, **kwargs):
+        # 1. Validate Clinic Access
+        clinic_id = request.data.get('clinic')
+        if not clinic_id:
+             # Let serializer handle missing field error, but we can't check perm without it
+             pass 
+        else:
+            user = request.user
+            has_permission = False
+            
+            if user.user_type == 'doctor':
+                # Doctor must own the clinic
+                if Clinic.objects.filter(id=clinic_id, doctor=user).exists():
+                    has_permission = True
+            elif user.user_type == 'employee':
+                # Employee must be assigned to the clinic
+                if Employee.objects.filter(clinic_id=clinic_id, staff=user).exists():
+                    has_permission = True
+            elif user.user_type == 'patient':
+                 # Patients typically can't create visits directly via this API (usually via booking flows), 
+                 # but if they do, logic might differ. 
+                 # Assuming for this specific request "enabled only employees/doctors... to modify and access"
+                 # means we strictly enforce this for the management API.
+                 # If patients need to create, they likely use a different flow or we need clarification.
+                 # For now, assuming standard permission check:
+                 pass
+
+            # If user is trying to create for a clinic they don't belong to (and they are staff/doctor)
+            if (user.user_type in ['doctor', 'employee']) and not has_permission:
+                 return Response(
+                    {'error': 'You do not have permission to create visits for this clinic.'}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         visit = serializer.save()
