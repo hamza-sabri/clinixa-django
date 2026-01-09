@@ -2,7 +2,23 @@ from rest_framework import serializers
 from django.utils import timezone
 
 from .models import Visit
+from .models import Visit, VisitAttachment
 from apps.clinics.serializers import ClinicListSerializer
+from apps.recordings.utils import generate_presigned_url
+
+
+
+class VisitAttachmentSerializer(serializers.ModelSerializer):
+    """Serializer for visit attachments."""
+    url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = VisitAttachment
+        fields = ['id', 'name', 'file_type', 'created_at', 'url']
+        
+    def get_url(self, obj):
+        # We assume 'name' stores the B2 file name (key)
+        return generate_presigned_url(obj.name)
 
 
 class VisitSerializer(serializers.ModelSerializer):
@@ -24,7 +40,13 @@ class VisitSerializer(serializers.ModelSerializer):
     
     # Vitals attached to this visit
     has_vital = serializers.SerializerMethodField()
+    # Vitals attached to this visit
+    has_vital = serializers.SerializerMethodField()
     baby_vitals_count = serializers.SerializerMethodField()
+    recording_url = serializers.SerializerMethodField()
+    
+    # Attachments
+    attachments = VisitAttachmentSerializer(many=True, read_only=True)
     
     class Meta:
         model = Visit
@@ -34,6 +56,7 @@ class VisitSerializer(serializers.ModelSerializer):
             'patient_id', 'patient_name', 'patient_email', 'patient_phone',
             'time', 'status', 'note', 'urgency',
             'has_vital', 'baby_vitals_count',
+            'recording_url', 'attachments',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -76,6 +99,11 @@ class VisitSerializer(serializers.ModelSerializer):
     
     def get_baby_vitals_count(self, obj):
         return obj.baby_vitals.count()
+
+    def get_recording_url(self, obj):
+        if obj.recording_url:
+            return generate_presigned_url(obj.recording_url)
+        return None
 
 
 class VisitListSerializer(serializers.ModelSerializer):

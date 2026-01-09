@@ -1,4 +1,8 @@
 from rest_framework import generics, status
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+import os
+import time
+from apps.recordings.utils import upload_file_to_b2
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -9,7 +13,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from datetime import timedelta
 
-from .models import Visit
+from .models import Visit, VisitAttachment
 from .serializers import (
     VisitSerializer,
     VisitCreateSerializer,
@@ -276,16 +280,35 @@ You can create vital records along with the visit:
 class VisitUpdateAPIView(VisitQuerySetMixin, generics.UpdateAPIView):
     """PUT/PATCH /api/visits/{id}/update/ - Update visit"""
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     serializer_class = VisitUpdateSerializer
     
     @swagger_auto_schema(
         operation_id='putVisitsById',
         operation_summary='Update a visit',
-        operation_description='Update visit information including time, status, and notes.',
+        operation_description='''
+Update visit information including time, status, and notes.
+
+**File Attachments:**
+To upload attachments along with the visit update, use `multipart/form-data` encoding:
+- Field name: `attachments` (can send multiple files)
+- Supported: Any file type (images, PDFs, documents, etc.)
+- Files are automatically uploaded to Backblaze B2 and linked to the visit
+- Retrieve attachments via the visit detail endpoint
+
+**Example (curl):**
+```bash
+curl -X PATCH 'http://localhost:8000/api/visits/{id}/update/' \\
+  -H 'Authorization: Bearer {token}' \\
+  -F "attachments=@file1.pdf" \\
+  -F "attachments=@file2.jpg" \\
+  -F "note=Updated with attachments"
+```
+        ''',
         tags=['Visits']
     )
     def put(self, request, *args, **kwargs):
-        return super().put(request, *args, **kwargs)
+        return self.update(request, *args, **kwargs)
     
     @swagger_auto_schema(
         operation_id='patchVisitsById',
@@ -294,7 +317,45 @@ class VisitUpdateAPIView(VisitQuerySetMixin, generics.UpdateAPIView):
         tags=['Visits']
     )
     def patch(self, request, *args, **kwargs):
-        return super().patch(request, *args, **kwargs)
+        return self.partial_update(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        
+        if status.is_success(response.status_code):
+            self.handle_attachments(request, self.get_object())
+            
+        return response
+
+    def handle_attachments(self, request, visit):
+        files = request.FILES.getlist('attachments')
+        # Support both 'attachments' and 'files' keys
+        if not files:
+            files = request.FILES.getlist('files')
+            
+        if not files:
+            return
+            
+        for file_obj in files:
+            try:
+                # Naming: visit_{id}_att_{timestamp}_{original_name}
+                timestamp = int(time.time())
+                # Sanitize filename a bit
+                safe_name = os.path.basename(file_obj.name).replace(' ', '_')
+                target_filename = f"visit_{visit.id}_att_{timestamp}_{safe_name}"
+                
+                uploaded = upload_file_to_b2(file_obj, target_filename)
+                
+                VisitAttachment.objects.create(
+                    visit=visit,
+                    name=uploaded.file_name,
+                    file_id=uploaded.id_,
+                    file_type=file_obj.content_type or 'application/octet-stream'
+                )
+            except Exception as e:
+                # Log error but don't fail the main update?
+                # For now print/log
+                print(f"Error uploading attachment {file_obj.name}: {e}")
 
 
 class VisitDeleteAPIView(VisitQuerySetMixin, generics.DestroyAPIView):

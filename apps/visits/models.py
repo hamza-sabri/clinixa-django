@@ -60,7 +60,10 @@ class Visit(models.Model):
     
     # Reschedule tracking fields
     rescheduled_at = models.DateTimeField('rescheduled at', null=True, blank=True)
+
     previous_time = models.DateTimeField('previous appointment time', null=True, blank=True)
+    
+    recording_url = models.TextField('recording url', blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -84,6 +87,26 @@ class Visit(models.Model):
         if self.pregnancy:
             return self.pregnancy.patient
         return self.patient
+
+
+class VisitAttachment(models.Model):
+    """
+    Attachments for a visit (e.g. lab results, x-rays, etc.)
+    Files are stored in Backblaze B2.
+    """
+    visit = models.ForeignKey(
+        Visit,
+        on_delete=models.CASCADE,
+        related_name='attachments',
+        verbose_name='visit'
+    )
+    name = models.CharField('file name', max_length=255)
+    file_id = models.CharField('b2 file id', max_length=200) # Store B2 file ID for secure access
+    file_type = models.CharField('file type', max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.visit})"
 
 
 
