@@ -88,6 +88,9 @@ urlpatterns = [
     # Recordings (audio processing)
     path('api/recordings/', include('apps.recordings.urls')),
     
+    # Locations (cities)
+    path('api/locations/', include('apps.locations.urls')),
+    
     # Health check endpoint
     path('health/', lambda request: __import__('django.http', fromlist=['JsonResponse']).JsonResponse({'status': 'healthy'}), name='health'),
     

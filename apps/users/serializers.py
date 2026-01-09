@@ -10,10 +10,12 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for User model - used in responses."""
     
+    city_name = serializers.CharField(source='city.name', read_only=True)
+    
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'phone', 'user_type', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = ['id', 'email', 'name', 'phone', 'user_type', 'city', 'city_name', 'created_at']
+        read_only_fields = ['id', 'city_name', 'created_at']
 
 
 class ClinicInfoSerializer(serializers.Serializer):
@@ -102,10 +104,15 @@ class SignupSerializer(serializers.ModelSerializer):
         min_length=6,
         style={'input_type': 'password'}
     )
+    city = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text='City ID for the patient'
+    )
     
     class Meta:
         model = User
-        fields = ['email', 'password', 'name', 'phone']
+        fields = ['email', 'password', 'name', 'phone', 'city']
         extra_kwargs = {
             'name': {'required': False},
             'phone': {'required': False},
@@ -116,17 +123,31 @@ class SignupSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('A user with this email already exists.')
         return value.lower()
     
+    def validate_city(self, value):
+        if value is not None:
+            from apps.locations.models import City
+            if not City.objects.filter(id=value).exists():
+                raise serializers.ValidationError('City not found.')
+        return value
+    
     def validate_password(self, value):
         validate_password(value)
         return value
     
     def create(self, validated_data):
+        city_id = validated_data.pop('city', None)
+        city = None
+        if city_id:
+            from apps.locations.models import City
+            city = City.objects.filter(id=city_id).first()
+        
         user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
             name=validated_data.get('name', ''),
             phone=validated_data.get('phone', ''),
-            user_type='patient'
+            user_type='patient',
+            city=city
         )
         return user
 
@@ -139,12 +160,14 @@ class SignupWithClinicSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=6)
     name = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.IntegerField(required=False, allow_null=True, help_text='City ID for the doctor')
     
     # Clinic fields
     clinic_name = serializers.CharField()
     clinic_location = serializers.CharField()
     clinic_phone = serializers.CharField()
     clinic_type = serializers.CharField(required=False, default='عيادة اطفال')
+    clinic_city = serializers.IntegerField(required=False, allow_null=True, help_text='City ID for the clinic')
     
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
@@ -155,9 +178,33 @@ class SignupWithClinicSerializer(serializers.Serializer):
         validate_password(value)
         return value
     
+    def validate_city(self, value):
+        if value is not None:
+            from apps.locations.models import City
+            if not City.objects.filter(id=value).exists():
+                raise serializers.ValidationError('City not found.')
+        return value
+    
+    def validate_clinic_city(self, value):
+        if value is not None:
+            from apps.locations.models import City
+            if not City.objects.filter(id=value).exists():
+                raise serializers.ValidationError('City not found.')
+        return value
+    
     def create(self, validated_data):
         # Import here to avoid circular imports
         from apps.clinics.models import Clinic
+        from apps.locations.models import City
+        
+        # Get city objects
+        user_city = None
+        if validated_data.get('city'):
+            user_city = City.objects.filter(id=validated_data['city']).first()
+        
+        clinic_city = None
+        if validated_data.get('clinic_city'):
+            clinic_city = City.objects.filter(id=validated_data['clinic_city']).first()
         
         # Create doctor user
         user = User.objects.create_user(
@@ -165,7 +212,8 @@ class SignupWithClinicSerializer(serializers.Serializer):
             password=validated_data['password'],
             name=validated_data.get('name', ''),
             phone=validated_data.get('phone', ''),
-            user_type='doctor'
+            user_type='doctor',
+            city=user_city
         )
         
         # Create clinic
@@ -174,7 +222,8 @@ class SignupWithClinicSerializer(serializers.Serializer):
             name=validated_data['clinic_name'],
             location=validated_data['clinic_location'],
             phone=validated_data['clinic_phone'],
-            type=validated_data.get('clinic_type', 'عيادة اطفال')
+            type=validated_data.get('clinic_type', 'عيادة اطفال'),
+            city=clinic_city
         )
         
         return user
@@ -293,11 +342,12 @@ class PatientUserSerializer(serializers.ModelSerializer):
     """User serializer for patient responses - hides placeholder emails."""
     
     email = serializers.SerializerMethodField()
+    city_name = serializers.CharField(source='city.name', read_only=True)
     
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'phone', 'user_type', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = ['id', 'email', 'name', 'phone', 'user_type', 'city', 'city_name', 'created_at']
+        read_only_fields = ['id', 'city_name', 'created_at']
     
     def get_email(self, obj):
         """Return None for placeholder emails (phone-only users)."""
@@ -327,15 +377,17 @@ class PatientMeSerializer(serializers.ModelSerializer):
     pregnancies_count = serializers.SerializerMethodField()
     ongoing_pregnancy = serializers.SerializerMethodField()
     email = serializers.SerializerMethodField()
+    city_name = serializers.CharField(source='city.name', read_only=True)
     
     class Meta:
         model = User
         fields = [
             'id', 'email', 'phone', 'name', 'user_type', 'birth_date',
+            'city', 'city_name',
             'profile', 'pregnancies', 'pregnancies_count', 'ongoing_pregnancy',
             'created_at'
         ]
-        read_only_fields = ['id', 'user_type', 'created_at']
+        read_only_fields = ['id', 'user_type', 'city_name', 'created_at']
     
     def get_email(self, obj):
         """Return None for placeholder emails (phone-only users)."""
@@ -372,7 +424,15 @@ class PatientMeUpdateSerializer(serializers.Serializer):
     
     name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     birth_date = serializers.DateField(required=False, allow_null=True, help_text='Patient birth date (YYYY-MM-DD)')
+    city = serializers.IntegerField(required=False, allow_null=True, help_text='City ID')
     profile = serializers.DictField(required=False, help_text='Profile fields: blood_type, allergies, medical_history, notes')
+    
+    def validate_city(self, value):
+        if value is not None:
+            from apps.locations.models import City
+            if not City.objects.filter(id=value).exists():
+                raise serializers.ValidationError('City not found.')
+        return value
     
     def update(self, instance, validated_data):
         # Collect fields to update on the user instance
@@ -387,6 +447,13 @@ class PatientMeUpdateSerializer(serializers.Serializer):
         if 'birth_date' in validated_data:
             instance.birth_date = validated_data['birth_date']
             update_fields.append('birth_date')
+        
+        # Update city if provided
+        if 'city' in validated_data:
+            from apps.locations.models import City
+            city_id = validated_data['city']
+            instance.city = City.objects.filter(id=city_id).first() if city_id else None
+            update_fields.append('city')
         
         # Save user instance if any fields were updated
         if update_fields:
@@ -434,10 +501,11 @@ class PatientListSerializer(serializers.ModelSerializer):
     profile = PatientProfileSerializer(source='patient_profile', read_only=True)
     pregnancies = serializers.SerializerMethodField()
     pregnancies_count = serializers.SerializerMethodField()
+    city_name = serializers.CharField(source='city.name', read_only=True)
     
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'phone', 'profile', 'pregnancies', 'pregnancies_count', 'created_at']
+        fields = ['id', 'email', 'name', 'phone', 'city', 'city_name', 'profile', 'pregnancies', 'pregnancies_count', 'created_at']
     
     def get_pregnancies(self, obj):
         """Get all pregnancies ordered by due_date descending."""
@@ -459,10 +527,11 @@ class PatientDetailSerializer(serializers.ModelSerializer):
     pregnancies = serializers.SerializerMethodField()
     pregnancies_count = serializers.SerializerMethodField()
     ongoing_pregnancy = serializers.SerializerMethodField()
+    city_name = serializers.CharField(source='city.name', read_only=True)
     
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'phone', 'profile', 'pregnancies', 'pregnancies_count', 'ongoing_pregnancy', 'created_at']
+        fields = ['id', 'email', 'name', 'phone', 'city', 'city_name', 'profile', 'pregnancies', 'pregnancies_count', 'ongoing_pregnancy', 'created_at']
     
     def get_pregnancies(self, obj):
         """Get all pregnancies ordered by due_date descending."""
@@ -492,10 +561,15 @@ class PatientCreateSerializer(serializers.ModelSerializer):
     allergies = serializers.CharField(required=False, allow_blank=True)
     medical_history = serializers.CharField(required=False, allow_blank=True)
     profile_notes = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text='City ID for the patient'
+    )
     
     class Meta:
         model = User
-        fields = ['email', 'name', 'phone', 'blood_type', 'allergies', 'medical_history', 'profile_notes']
+        fields = ['email', 'name', 'phone', 'city', 'blood_type', 'allergies', 'medical_history', 'profile_notes']
         extra_kwargs = {
             'name': {'required': False},
             'phone': {'required': False},
@@ -506,12 +580,25 @@ class PatientCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('A user with this email already exists.')
         return value.lower()
     
+    def validate_city(self, value):
+        if value is not None:
+            from apps.locations.models import City
+            if not City.objects.filter(id=value).exists():
+                raise serializers.ValidationError('City not found.')
+        return value
+    
     def create(self, validated_data):
         # Extract profile fields
         blood_type = validated_data.pop('blood_type', '')
         allergies = validated_data.pop('allergies', '')
         medical_history = validated_data.pop('medical_history', '')
         profile_notes = validated_data.pop('profile_notes', '')
+        city_id = validated_data.pop('city', None)
+        
+        city = None
+        if city_id:
+            from apps.locations.models import City
+            city = City.objects.filter(id=city_id).first()
         
         # Create user with a default password (can be reset later)
         import secrets
@@ -522,7 +609,8 @@ class PatientCreateSerializer(serializers.ModelSerializer):
             password=temp_password,
             name=validated_data.get('name', ''),
             phone=validated_data.get('phone', ''),
-            user_type='patient'
+            user_type='patient',
+            city=city
         )
         
         # Create profile
@@ -545,10 +633,22 @@ class PatientUpdateSerializer(serializers.ModelSerializer):
     allergies = serializers.CharField(required=False, allow_blank=True)
     medical_history = serializers.CharField(required=False, allow_blank=True)
     profile_notes = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text='City ID for the patient'
+    )
     
     class Meta:
         model = User
-        fields = ['name', 'phone', 'blood_type', 'allergies', 'medical_history', 'profile_notes']
+        fields = ['name', 'phone', 'city', 'blood_type', 'allergies', 'medical_history', 'profile_notes']
+    
+    def validate_city(self, value):
+        if value is not None:
+            from apps.locations.models import City
+            if not City.objects.filter(id=value).exists():
+                raise serializers.ValidationError('City not found.')
+        return value
     
     def update(self, instance, validated_data):
         # Extract profile fields
@@ -556,10 +656,14 @@ class PatientUpdateSerializer(serializers.ModelSerializer):
         allergies = validated_data.pop('allergies', None)
         medical_history = validated_data.pop('medical_history', None)
         profile_notes = validated_data.pop('profile_notes', None)
+        city_id = validated_data.pop('city', None)
         
         # Update user fields
         instance.name = validated_data.get('name', instance.name)
         instance.phone = validated_data.get('phone', instance.phone)
+        if 'city' in self.initial_data:  # Only update city if it was in the request
+            from apps.locations.models import City
+            instance.city = City.objects.filter(id=city_id).first() if city_id else None
         instance.save()
         
         # Update or create profile
@@ -589,6 +693,24 @@ class BabyListSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'gender', 'is_born', 'birth_date', 'birth_weight', 'created_at']
 
 
+class BabyWithVitalsSerializer(serializers.ModelSerializer):
+    """Baby serializer with all vitals included."""
+    
+    vitals = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Baby
+        fields = [
+            'id', 'name', 'gender', 'birth_date', 'birth_weight',
+            'birth_length', 'apgar_score', 'is_born', 'notes',
+            'vitals', 'created_at', 'updated_at'
+        ]
+    
+    def get_vitals(self, obj):
+        from apps.vitals.serializers import BabyVitalListSerializer
+        return BabyVitalListSerializer(obj.vitals.all(), many=True).data
+
+
 class PregnancyListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for pregnancy lists."""
     
@@ -605,12 +727,19 @@ class PregnancyListSerializer(serializers.ModelSerializer):
 
 
 class PregnancyDetailSerializer(serializers.ModelSerializer):
-    """Detailed serializer for single pregnancy view."""
+    """Detailed serializer for single pregnancy view with ALL related data."""
     
     pregnancy_week = serializers.ReadOnlyField()
     trimester = serializers.ReadOnlyField()
     patient = serializers.SerializerMethodField()
-    babies = BabyListSerializer(many=True, read_only=True)
+    
+    # Full related data
+    babies = BabyWithVitalsSerializer(many=True, read_only=True)  # Babies WITH their vitals
+    vitals = serializers.SerializerMethodField()  # Mother's vitals
+    visits = serializers.SerializerMethodField()  # All visits
+    
+    # Counts for quick reference
+    babies_count = serializers.SerializerMethodField()
     visits_count = serializers.SerializerMethodField()
     vitals_count = serializers.SerializerMethodField()
     last_visit = serializers.SerializerMethodField()
@@ -620,8 +749,10 @@ class PregnancyDetailSerializer(serializers.ModelSerializer):
         model = Pregnancy
         fields = [
             'id', 'patient', 'lmp', 'due_date', 'status', 'is_high_risk', 
-            'pregnancy_week', 'trimester', 'notes', 'babies', 
-            'visits_count', 'vitals_count', 'last_visit',
+            'pregnancy_week', 'trimester', 'notes',
+            'babies_count', 'babies',
+            'vitals_count', 'vitals',
+            'visits_count', 'visits', 'last_visit',
             'created_by_clinic', 'created_by_clinic_name', 'created_at', 'updated_at'
         ]
     
@@ -633,6 +764,17 @@ class PregnancyDetailSerializer(serializers.ModelSerializer):
             'email': user.email,
             'phone': user.phone
         }
+    
+    def get_babies_count(self, obj):
+        return obj.babies.count()
+    
+    def get_vitals(self, obj):
+        from apps.vitals.serializers import VitalListSerializer
+        return VitalListSerializer(obj.vitals.all(), many=True).data
+    
+    def get_visits(self, obj):
+        from apps.visits.serializers import VisitListSerializer
+        return VisitListSerializer(obj.visits.all(), many=True).data
     
     def get_visits_count(self, obj):
         return obj.visits.count()
@@ -650,9 +792,18 @@ class PregnancyDetailSerializer(serializers.ModelSerializer):
 class PregnancyCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating a new pregnancy."""
     
+    babies_count = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        default=1,
+        min_value=1,
+        max_value=8,
+        help_text='Number of babies to create for this pregnancy (twins, triplets, etc.)'
+    )
+    
     class Meta:
         model = Pregnancy
-        fields = ['lmp', 'due_date', 'status', 'is_high_risk', 'notes', 'created_by_clinic']
+        fields = ['lmp', 'due_date', 'status', 'is_high_risk', 'notes', 'created_by_clinic', 'babies_count']
         extra_kwargs = {
             'lmp': {'required': False},
             'due_date': {'required': False},
@@ -661,6 +812,11 @@ class PregnancyCreateSerializer(serializers.ModelSerializer):
             'notes': {'required': False},
             'created_by_clinic': {'required': False},
         }
+    
+    def create(self, validated_data):
+        # Remove babies_count from validated_data (not a model field)
+        validated_data.pop('babies_count', None)
+        return super().create(validated_data)
 
 
 class PatientMePregnancyCreateSerializer(serializers.ModelSerializer):
@@ -669,15 +825,29 @@ class PatientMePregnancyCreateSerializer(serializers.ModelSerializer):
     Excludes created_by_clinic as patients don't set this field.
     """
     
+    babies_count = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        default=1,
+        min_value=1,
+        max_value=8,
+        help_text='Number of babies to create for this pregnancy (twins, triplets, etc.)'
+    )
+    
     class Meta:
         model = Pregnancy
-        fields = ['lmp', 'due_date', 'is_high_risk', 'notes']
+        fields = ['lmp', 'due_date', 'is_high_risk', 'notes', 'babies_count']
         extra_kwargs = {
             'lmp': {'required': False, 'help_text': 'Last menstrual period date (YYYY-MM-DD)'},
             'due_date': {'required': False, 'help_text': 'Expected due date (YYYY-MM-DD)'},
             'is_high_risk': {'required': False, 'default': False, 'help_text': 'Is this a high-risk pregnancy?'},
             'notes': {'required': False, 'help_text': 'Additional notes'},
         }
+    
+    def create(self, validated_data):
+        # Remove babies_count from validated_data (not a model field)
+        validated_data.pop('babies_count', None)
+        return super().create(validated_data)
 
 
 class PregnancyUpdateSerializer(serializers.ModelSerializer):

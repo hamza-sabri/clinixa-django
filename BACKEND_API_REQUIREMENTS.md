@@ -483,7 +483,230 @@ def get_available_slots(clinic, date):
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 2025  
+## 9. City/Location Management
+
+### 9.1 List Cities
+**Endpoint:** `GET /api/locations/cities/`
+
+**Description:** Get all available cities. Public endpoint (no auth required).
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `search` | string | Search by city name |
+| `ordering` | string | Order by field (`name`, `-name`, `id`, `-id`) |
+
+**Response (Success - 200):**
+```json
+[
+  {"id": 1, "name": "Dubai"},
+  {"id": 2, "name": "Abu Dhabi"},
+  {"id": 3, "name": "Sharjah"}
+]
+```
+
+---
+
+### 9.2 City Field in User APIs
+
+**City is now available in all User-related serializers:**
+
+| API | Field | Description |
+|-----|-------|-------------|
+| `POST /api/users/signup/` | `city` (int) | City ID for patient signup |
+| `POST /api/users/signup-with-clinic/` | `city` (int), `clinic_city` (int) | City for doctor and clinic |
+| `POST /api/patients/` | `city` (int) | City ID when creating patient |
+| `PATCH /api/patients/{id}/` | `city` (int) | Update patient city |
+| `PATCH /api/patients/me/` | `city` (int) | Update own city |
+| `GET /api/patients/`, `GET /api/patients/{id}/` | `city`, `city_name` | Returns city ID and name |
+| `POST /api/employees/` | `city` (int) | City for employee user |
+
+---
+
+### 9.3 City Field in Clinic APIs
+
+**City is now available in all Clinic-related serializers:**
+
+| API | Field | Description |
+|-----|-------|-------------|
+| `POST /api/clinics/` | `city` (int) | City ID when creating clinic |
+| `PATCH /api/clinics/{id}/` | `city` (int) | Update clinic city |
+| `GET /api/clinics/`, `GET /api/clinics/{id}/` | `city`, `city_name` | Returns city ID and name |
+
+---
+
+## 10. Pregnancy Enhancements
+
+### 10.1 Auto-Create Babies on Pregnancy Creation
+
+**When creating a pregnancy, you can specify `babies_count` to auto-create multiple babies:**
+
+**Endpoint:** `POST /api/patients/{patient_id}/pregnancies/`  
+**Endpoint:** `POST /api/patients/me/pregnancies/create/`
+
+**Request Body:**
+```json
+{
+  "lmp": "2024-01-15",
+  "due_date": "2024-10-22",
+  "is_high_risk": false,
+  "notes": "Twins pregnancy",
+  "babies_count": 2
+}
+```
+
+**babies_count:**
+- Type: Integer (1-8)
+- Default: 1
+- Description: Number of babies to auto-create for this pregnancy (for twins, triplets, etc.)
+
+**Response (Success - 201):**
+```json
+{
+  "id": 123,
+  "patient": {...},
+  "lmp": "2024-01-15",
+  "due_date": "2024-10-22",
+  "status": "ongoing",
+  "is_high_risk": false,
+  "pregnancy_week": 12,
+  "trimester": 1,
+  "notes": "Twins pregnancy",
+  "babies_count": 2,
+  "babies": [
+    {"id": 1, "name": "", "gender": "", "is_born": false, "vitals": []},
+    {"id": 2, "name": "", "gender": "", "is_born": false, "vitals": []}
+  ],
+  "vitals_count": 0,
+  "vitals": [],
+  "visits_count": 0,
+  "visits": [],
+  "auto_closed_pregnancies_count": 1,
+  "created_at": "2024-01-20T10:30:00Z"
+}
+```
+
+---
+
+### 10.2 Single Active Pregnancy Constraint
+
+**Business Rule:** A patient can only have one active (status='ongoing') pregnancy at a time.
+
+**Behavior when creating a new pregnancy:**
+- All existing pregnancies with status `ongoing` for the patient are automatically marked as `delivered`
+- The response includes `auto_closed_pregnancies_count` if any were closed
+- This applies to both clinic-created and patient self-created pregnancies
+
+---
+
+### 10.3 Enhanced Pregnancy Detail Response
+
+**The pregnancy detail API now returns ALL related data:**
+
+**Endpoint:** `GET /api/pregnancies/{id}/`
+
+**Response includes:**
+- `babies` - Array of babies with their vitals
+- `vitals` - Array of mother's vitals
+- `visits` - Array of all visits
+- `babies_count`, `vitals_count`, `visits_count` - Quick reference counts
+
+**Full Response Example:**
+```json
+{
+  "id": 123,
+  "patient": {
+    "id": 456,
+    "name": "Patient Name",
+    "email": "patient@example.com",
+    "phone": "+971501234567"
+  },
+  "lmp": "2024-01-15",
+  "due_date": "2024-10-22",
+  "status": "ongoing",
+  "is_high_risk": false,
+  "pregnancy_week": 12,
+  "trimester": 1,
+  "notes": "",
+  "babies_count": 2,
+  "babies": [
+    {
+      "id": 1,
+      "name": "Baby 1",
+      "gender": "male",
+      "birth_date": null,
+      "birth_weight": null,
+      "birth_length": null,
+      "apgar_score": null,
+      "is_born": false,
+      "notes": "",
+      "vitals": [
+        {"id": 1, "puls": 140, "weight": 0.5, "reading_date": "2024-02-01"},
+        {"id": 2, "puls": 142, "weight": 0.6, "reading_date": "2024-03-01"}
+      ],
+      "created_at": "2024-01-20T10:30:00Z",
+      "updated_at": "2024-01-20T10:30:00Z"
+    },
+    {
+      "id": 2,
+      "name": "Baby 2",
+      "gender": "",
+      "is_born": false,
+      "vitals": []
+    }
+  ],
+  "vitals_count": 2,
+  "vitals": [
+    {"id": 1, "systolic": 120, "diastolic": 80, "weight": 65.5, "reading_date": "2024-02-01"},
+    {"id": 2, "systolic": 118, "diastolic": 78, "weight": 66.0, "reading_date": "2024-03-01"}
+  ],
+  "visits_count": 2,
+  "visits": [
+    {"id": 1, "clinic": 1, "clinic_name": "العيادة", "time": "2024-02-01T10:00:00Z", "status": "مكتمل"},
+    {"id": 2, "clinic": 1, "clinic_name": "العيادة", "time": "2024-03-01T10:00:00Z", "status": "مؤكد"}
+  ],
+  "last_visit": "2024-03-01T10:00:00Z",
+  "created_by_clinic": 1,
+  "created_by_clinic_name": "العيادة",
+  "created_at": "2024-01-20T10:30:00Z",
+  "updated_at": "2024-03-15T14:00:00Z"
+}
+```
+
+---
+
+## 11. Summary of New Features (January 2026)
+
+### New Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/locations/cities/` | List all cities (public) |
+
+### Model Changes
+| Model | Field | Type | Description |
+|-------|-------|------|-------------|
+| User | `city` | ForeignKey | User's city |
+| Clinic | `city` | ForeignKey | Clinic's city |
+| City | `name` | CharField | City name |
+
+### Serializer Changes
+| Serializer | New Fields | Description |
+|------------|------------|-------------|
+| All Clinic serializers | `city`, `city_name` | City ID and name |
+| All Patient/User serializers | `city`, `city_name` | City ID and name |
+| PregnancyCreateSerializer | `babies_count` | Write-only, auto-create babies |
+| PregnancyDetailSerializer | `babies`, `vitals`, `visits`, `babies_count` | Full related data |
+| BabyWithVitalsSerializer | `vitals` | Baby's vitals included |
+
+### Business Logic Changes
+| Feature | Description |
+|---------|-------------|
+| Single Active Pregnancy | Only one ongoing pregnancy per patient; new creation marks old ones as delivered |
+| Auto Baby Creation | Specify `babies_count` to auto-create babies when creating pregnancy |
+
+---
+
+**Document Version:** 1.1  
+**Last Updated:** January 2026  
 **Frontend Contact:** Will use mock data until these endpoints are ready
 

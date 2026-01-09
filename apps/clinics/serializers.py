@@ -13,17 +13,18 @@ class ClinicSerializer(serializers.ModelSerializer):
     
     doctor_name = serializers.CharField(source='doctor.name', read_only=True)
     doctor_email = serializers.CharField(source='doctor.email', read_only=True)
+    city_name = serializers.CharField(source='city.name', read_only=True)
     
     class Meta:
         model = Clinic
         fields = [
             'id', 'doctor', 'doctor_name', 'doctor_email',
-            'name', 'location', 'phone', 'type', 
+            'name', 'location', 'phone', 'type', 'city', 'city_name',
             'working_hours', 'slot_duration', 'description',
             'latitude', 'longitude', 'is_accepting_new_patients', 'is_open',
             'created_at'
         ]
-        read_only_fields = ['id', 'doctor', 'doctor_name', 'doctor_email', 'created_at']
+        read_only_fields = ['id', 'doctor', 'doctor_name', 'doctor_email', 'city_name', 'created_at']
     
     def create(self, validated_data):
         # Set the doctor to the current user
@@ -35,6 +36,7 @@ class ClinicListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for clinic lists with statistics."""
     
     doctor_name = serializers.CharField(source='doctor.name', read_only=True)
+    city_name = serializers.CharField(source='city.name', read_only=True)
     visits_per_status = serializers.SerializerMethodField()
     distinct_patients_count = serializers.SerializerMethodField()
     employees_count = serializers.SerializerMethodField()
@@ -43,6 +45,7 @@ class ClinicListSerializer(serializers.ModelSerializer):
         model = Clinic
         fields = [
             'id', 'name', 'doctor_name', 'location', 'phone', 'type',
+            'city', 'city_name',
             'working_hours', 'slot_duration', 'is_accepting_new_patients', 'is_open',
             'description', 'latitude', 'longitude',
             'visits_per_status', 'distinct_patients_count', 'employees_count'
@@ -69,6 +72,7 @@ class ClinicDetailSerializer(serializers.ModelSerializer):
     
     doctor_name = serializers.CharField(source='doctor.name', read_only=True)
     doctor_email = serializers.CharField(source='doctor.email', read_only=True)
+    city_name = serializers.CharField(source='city.name', read_only=True)
     visits_per_status = serializers.SerializerMethodField()
     distinct_patients_count = serializers.SerializerMethodField()
     employees_count = serializers.SerializerMethodField()
@@ -77,13 +81,13 @@ class ClinicDetailSerializer(serializers.ModelSerializer):
         model = Clinic
         fields = [
             'id', 'doctor', 'doctor_name', 'doctor_email',
-            'name', 'location', 'phone', 'type',
+            'name', 'location', 'phone', 'type', 'city', 'city_name',
             'working_hours', 'slot_duration', 'description',
             'latitude', 'longitude', 'is_accepting_new_patients', 'is_open',
             'visits_per_status', 'distinct_patients_count', 'employees_count',
             'created_at'
         ]
-        read_only_fields = ['id', 'doctor', 'doctor_name', 'doctor_email', 'created_at']
+        read_only_fields = ['id', 'doctor', 'doctor_name', 'doctor_email', 'city_name', 'created_at']
     
     def get_visits_per_status(self, obj):
         """Get count of visits grouped by status."""
@@ -107,12 +111,15 @@ class EmployeeListSerializer(serializers.ModelSerializer):
     staff_name = serializers.CharField(source='staff.name', read_only=True)
     staff_email = serializers.CharField(source='staff.email', read_only=True)
     staff_phone = serializers.CharField(source='staff.phone', read_only=True)
+    staff_city = serializers.IntegerField(source='staff.city.id', read_only=True)
+    staff_city_name = serializers.CharField(source='staff.city.name', read_only=True)
     clinic_name = serializers.CharField(source='clinic.name', read_only=True)
     
     class Meta:
         model = Employee
         fields = [
             'id', 'staff', 'staff_name', 'staff_email', 'staff_phone',
+            'staff_city', 'staff_city_name',
             'clinic', 'clinic_name', 'role', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
@@ -129,6 +136,11 @@ class EmployeeCreateSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=6)
     name = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text='City ID for the employee'
+    )
     
     # Employee fields
     clinic = serializers.PrimaryKeyRelatedField(queryset=Clinic.objects.all())
@@ -143,6 +155,13 @@ class EmployeeCreateSerializer(serializers.Serializer):
         validate_password(value)
         return value
     
+    def validate_city(self, value):
+        if value is not None:
+            from apps.locations.models import City
+            if not City.objects.filter(id=value).exists():
+                raise serializers.ValidationError('City not found.')
+        return value
+    
     def validate_clinic(self, value):
         # Ensure the clinic belongs to the requesting doctor
         request = self.context.get('request')
@@ -151,13 +170,21 @@ class EmployeeCreateSerializer(serializers.Serializer):
         return value
     
     def create(self, validated_data):
+        # Extract city
+        city_id = validated_data.pop('city', None)
+        city = None
+        if city_id:
+            from apps.locations.models import City
+            city = City.objects.filter(id=city_id).first()
+        
         # Create the user
         user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
             name=validated_data.get('name', ''),
             phone=validated_data.get('phone', ''),
-            user_type='employee'
+            user_type='employee',
+            city=city
         )
         
         # Create the employee record

@@ -85,6 +85,7 @@ class User(AbstractUser):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     birth_date = models.DateField('birth date', null=True, blank=True)
+    city = models.ForeignKey('locations.City', on_delete=models.SET_NULL, null=True, blank=True, verbose_name='city')
     
     objects = UserManager()
     

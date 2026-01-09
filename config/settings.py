@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'apps.vitals',
     'apps.medications',
     'apps.recordings',
+    'apps.locations',
     'apps.core',  # For management commands and common utilities
 ]
 

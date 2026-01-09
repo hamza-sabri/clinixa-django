@@ -519,6 +519,7 @@ Create a new pregnancy record for the authenticated patient.
 - `due_date` - Expected due date (YYYY-MM-DD)
 - `is_high_risk` - Whether this is a high-risk pregnancy (default: false)
 - `notes` - Additional notes
+- `babies_count` - Number of babies to auto-create (1-8, default: 1)
 
 **Example request:**
 ```json
@@ -526,9 +527,12 @@ Create a new pregnancy record for the authenticated patient.
     "lmp": "2024-01-15",
     "due_date": "2024-10-22",
     "is_high_risk": false,
-    "notes": "First pregnancy"
+    "notes": "First pregnancy",
+    "babies_count": 2
 }
 ```
+
+**Note:** If you have any existing ongoing pregnancies, they will be automatically marked as 'delivered'.
 
 **Returns:** Full pregnancy details including calculated fields (pregnancy_week, trimester).
         ''',
@@ -547,10 +551,12 @@ Create a new pregnancy record for the authenticated patient.
                         'pregnancy_week': 12,
                         'trimester': 1,
                         'notes': 'First pregnancy',
-                        'babies': [],
+                        'babies_count': 2,
+                        'babies': [{'id': 1, 'name': '', 'gender': ''}, {'id': 2, 'name': '', 'gender': ''}],
                         'visits_count': 0,
                         'vitals_count': 0,
-                        'created_at': '2024-01-20T10:30:00Z'
+                        'created_at': '2024-01-20T10:30:00Z',
+                        'auto_closed_pregnancies_count': 1
                     }
                 }
             ),
@@ -568,16 +574,36 @@ Create a new pregnancy record for the authenticated patient.
         # Get or create patient profile
         profile, _ = PatientProfile.objects.get_or_create(user=request.user)
         
+        # Mark existing ongoing pregnancies as delivered (single active pregnancy constraint)
+        existing_ongoing = Pregnancy.objects.filter(
+            patient_profile=profile,
+            status='ongoing'
+        )
+        auto_closed_count = existing_ongoing.count()
+        existing_ongoing.update(status='delivered')
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         # Save with the patient profile
         pregnancy = serializer.save(patient_profile=profile)
         
+        # Auto-create babies based on babies_count
+        babies_count = int(request.data.get('babies_count', 1))
+        babies_count = max(1, min(babies_count, 8))  # Clamp between 1-8
+        for i in range(babies_count):
+            Baby.objects.create(pregnancy=pregnancy)
+        
         # Return full pregnancy details
         from .serializers import PregnancyDetailSerializer
         output_serializer = PregnancyDetailSerializer(pregnancy)
-        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+        response_data = output_serializer.data
+        
+        # Add info about auto-closed pregnancies if any
+        if auto_closed_count > 0:
+            response_data['auto_closed_pregnancies_count'] = auto_closed_count
+        
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 # ============================================================================
@@ -787,7 +813,11 @@ class PatientPregnancyCreateAPIView(generics.CreateAPIView):
         operation_description='''
 Create a new pregnancy record for a patient.
 
-**Optional fields:** lmp, due_date, status, is_high_risk, notes, created_by_clinic
+**Optional fields:** lmp, due_date, status, is_high_risk, notes, created_by_clinic, babies_count
+
+**babies_count:** Number of babies to auto-create (1-8, default: 1). Use for twins, triplets, etc.
+
+**Note:** If the patient has any existing ongoing pregnancies, they will be automatically marked as 'delivered'.
         ''',
         tags=['Pregnancies'],
         request_body=PregnancyCreateSerializer,
@@ -806,12 +836,32 @@ Create a new pregnancy record for a patient.
         
         profile, _ = PatientProfile.objects.get_or_create(user=user)
         
+        # Mark existing ongoing pregnancies as delivered (single active pregnancy constraint)
+        existing_ongoing = Pregnancy.objects.filter(
+            patient_profile=profile,
+            status='ongoing'
+        )
+        auto_closed_count = existing_ongoing.count()
+        existing_ongoing.update(status='delivered')
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         pregnancy = serializer.save(patient_profile=profile)
         
+        # Auto-create babies based on babies_count
+        babies_count = int(request.data.get('babies_count', 1))
+        babies_count = max(1, min(babies_count, 8))  # Clamp between 1-8
+        for i in range(babies_count):
+            Baby.objects.create(pregnancy=pregnancy)
+        
         output_serializer = PregnancyDetailSerializer(pregnancy)
-        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+        response_data = output_serializer.data
+        
+        # Add info about auto-closed pregnancies if any
+        if auto_closed_count > 0:
+            response_data['auto_closed_pregnancies_count'] = auto_closed_count
+        
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class PregnancyDetailAPIView(PregnancyQuerySetMixin, generics.RetrieveAPIView):

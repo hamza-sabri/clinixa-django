@@ -15,6 +15,7 @@ class Clinic(models.Model):
     location = models.CharField('location', max_length=500)
     phone = models.CharField('phone number', max_length=20)
     type = models.CharField('clinic type', max_length=100, default='عيادة اطفال')
+    city = models.ForeignKey('locations.City', on_delete=models.SET_NULL, null=True, blank=True, verbose_name='city')
     
     # New fields for patient portal
     working_hours = models.JSONField(
