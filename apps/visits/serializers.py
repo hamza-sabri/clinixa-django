@@ -11,14 +11,33 @@ from apps.recordings.utils import generate_presigned_url
 class VisitAttachmentSerializer(serializers.ModelSerializer):
     """Serializer for visit attachments."""
     url = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField()
     
     class Meta:
         model = VisitAttachment
-        fields = ['id', 'name', 'file_type', 'created_at', 'url']
+        fields = ['id', 'name', 'display_name', 'file_type', 'created_at', 'url']
         
     def get_url(self, obj):
         # We assume 'name' stores the B2 file name (key)
         return generate_presigned_url(obj.name)
+    
+    def get_display_name(self, obj):
+        """Extract the original filename from the B2 stored name.
+        
+        B2 name format: visit_{id}_att_{timestamp}_{original_name}
+        We want to return just the original_name part.
+        """
+        if not obj.name:
+            return None
+        
+        # Split by underscore and find where the original name starts
+        # Format: visit_1825_att_1768003006_sample-local-pdf.pdf
+        parts = obj.name.split('_')
+        if len(parts) >= 5:
+            # Skip first 4 parts: visit, {id}, att, {timestamp}
+            original_name = '_'.join(parts[4:])
+            return original_name
+        return obj.name
 
 
 class VisitSerializer(serializers.ModelSerializer):

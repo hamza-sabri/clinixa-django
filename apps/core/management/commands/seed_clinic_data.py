@@ -108,7 +108,7 @@ class Command(BaseCommand):
                             pregnancy=test_pregnancy,
                             time=visit_datetime,
                             status=random.choice(['مؤكد', 'جاري التأكيد', 'مكتمل']),
-                            note='Randomly generated test visit'
+                            note=''
                         )
                         bookings_created += 1
         
