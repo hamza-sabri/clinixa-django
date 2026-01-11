@@ -4,6 +4,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 
+from apps.recordings.utils import generate_presigned_url
+
 User = get_user_model()
 
 
@@ -904,4 +906,43 @@ class BabyUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Baby
         fields = ['name', 'gender', 'birth_date', 'birth_weight', 'birth_length', 'apgar_score', 'is_born', 'notes']
+
+
+# ============================================================================
+# USER ATTACHMENT SERIALIZERS
+# ============================================================================
+
+from .models import UserAttachment
+
+
+class UserAttachmentSerializer(serializers.ModelSerializer):
+    """Serializer for user attachments with presigned B2 URL."""
+    
+    url = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = UserAttachment
+        fields = ['id', 'name', 'display_name', 'file_type', 'description', 'created_at', 'url']
+        read_only_fields = ['id', 'name', 'file_type', 'created_at', 'url', 'display_name']
+    
+    def get_url(self, obj):
+        """Generate presigned URL for B2 file."""
+        return generate_presigned_url(obj.name)
+    
+    def get_display_name(self, obj):
+        """Extract the original filename from the B2 stored name.
+        
+        B2 name format: user_{id}_att_{timestamp}_{original_name}
+        We want to return just the original_name part.
+        """
+        if not obj.name:
+            return None
+        
+        parts = obj.name.split('_')
+        if len(parts) >= 5:
+            # Skip first 4 parts: user, {id}, att, {timestamp}
+            original_name = '_'.join(parts[4:])
+            return original_name
+        return obj.name
 

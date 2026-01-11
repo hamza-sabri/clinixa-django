@@ -7,8 +7,13 @@ from .views import (
     PatientUpdateAPIView,
     PatientPregnancyListAPIView,
     PatientPregnancyCreateAPIView,
+    PatientPregnancyDetailAPIView,
+    PatientPregnancyUpdateAPIView,
+    PatientPregnancyDeleteAPIView,
     PatientMeView,
     PatientMePregnancyCreateView,
+    PatientAttachmentListUploadAPIView,
+    PatientAttachmentDeleteAPIView,
 )
 
 app_name = 'patients'
@@ -26,5 +31,11 @@ urlpatterns = [
     # Nested pregnancies under patient
     path('<int:patient_id>/pregnancies/', PatientPregnancyListAPIView.as_view(), name='patient-pregnancy-list'),
     path('<int:patient_id>/pregnancies/create/', PatientPregnancyCreateAPIView.as_view(), name='patient-pregnancy-create'),
+    path('<int:patient_id>/pregnancies/<int:pregnancy_id>/', PatientPregnancyDetailAPIView.as_view(), name='patient-pregnancy-detail'),
+    path('<int:patient_id>/pregnancies/<int:pregnancy_id>/update/', PatientPregnancyUpdateAPIView.as_view(), name='patient-pregnancy-update'),
+    path('<int:patient_id>/pregnancies/<int:pregnancy_id>/delete/', PatientPregnancyDeleteAPIView.as_view(), name='patient-pregnancy-delete'),
+    # Nested attachments under patient (for doctors/employees)
+    path('<int:pk>/attachments/', PatientAttachmentListUploadAPIView.as_view(), name='patient-attachments'),
+    path('<int:pk>/attachments/<int:attachment_id>/', PatientAttachmentDeleteAPIView.as_view(), name='patient-attachment-delete'),
 ]
 

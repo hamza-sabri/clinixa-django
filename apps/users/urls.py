@@ -29,6 +29,11 @@ from .views import (
     BabyDetailAPIView,
     BabyUpdateAPIView,
     BabyDeleteAPIView,
+    # User attachment views
+    UserMeAttachmentListUploadAPIView,
+    UserMeAttachmentDeleteAPIView,
+    PatientAttachmentListUploadAPIView,
+    PatientAttachmentDeleteAPIView,
 )
 
 app_name = 'users'
@@ -44,6 +49,10 @@ urlpatterns = [
     # Patient OTP authentication endpoints
     path('request-otp/', RequestOTPView.as_view(), name='patient-request-otp'),
     path('verify-otp/', VerifyOTPView.as_view(), name='patient-verify-otp'),
+    
+    # User attachment endpoints (for authenticated user's own attachments)
+    path('me/attachments/', UserMeAttachmentListUploadAPIView.as_view(), name='user-me-attachments'),
+    path('me/attachments/<int:attachment_id>/', UserMeAttachmentDeleteAPIView.as_view(), name='user-me-attachment-delete'),
 ]
 
 # Patient URLs - to be mounted at /api/patients/

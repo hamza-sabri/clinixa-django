@@ -292,3 +292,29 @@ class OTPVerification(models.Model):
         """Increment the verification attempts counter."""
         self.attempts += 1
         self.save(update_fields=['attempts'])
+
+
+class UserAttachment(models.Model):
+    """
+    User document attachments stored in Backblaze B2.
+    Used for storing medical documents, ID cards, insurance info, etc.
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='attachments',
+        verbose_name='user'
+    )
+    name = models.CharField('file name', max_length=255)
+    file_id = models.CharField('b2 file id', max_length=200)
+    file_type = models.CharField('file type', max_length=100, blank=True)
+    description = models.CharField('description', max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = 'user attachment'
+        verbose_name_plural = 'user attachments'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.name} ({self.user})"

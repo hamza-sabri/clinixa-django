@@ -9,7 +9,12 @@ from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import PatientProfile, Pregnancy, Baby
+from .models import PatientProfile, Pregnancy, Baby, UserAttachment
+from apps.clinics.permissions import IsDoctorOrEmployee
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from apps.recordings.utils import upload_file_to_b2, delete_file_from_b2
+import os
+import time
 from .serializers import (
     SignupSerializer,
     SignupWithClinicSerializer,
@@ -33,6 +38,8 @@ from .serializers import (
     BabyDetailSerializer,
     BabyCreateSerializer,
     BabyUpdateSerializer,
+    # User attachment serializers
+    UserAttachmentSerializer,
 )
 from apps.core.swagger import PAGINATION_PARAMETERS, PAGINATION_DESCRIPTION
 
@@ -756,13 +763,7 @@ class PregnancyQuerySetMixin:
         user = self.request.user
         
         if user.user_type == 'doctor':
-            from apps.clinics.models import Clinic
-            clinic_ids = Clinic.objects.filter(doctor=user).values_list('id', flat=True)
-            # Pregnancies created by doctor's clinics OR with visits to doctor's clinics
-            return Pregnancy.objects.filter(
-                Q(created_by_clinic_id__in=clinic_ids) |
-                Q(visits__clinic_id__in=clinic_ids)
-            ).select_related('patient_profile__user', 'created_by_clinic').distinct()
+            return Pregnancy.objects.all().select_related('patient_profile__user', 'created_by_clinic').distinct()
         
         elif user.user_type == 'employee':
             from apps.clinics.models import Employee
@@ -864,6 +865,136 @@ Create a new pregnancy record for a patient.
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
+class PatientPregnancyDetailAPIView(generics.RetrieveAPIView):
+    """GET /api/patients/{patient_id}/pregnancies/{pregnancy_id}/ - Get specific pregnancy for patient"""
+    permission_classes = [IsAuthenticated, IsDoctorOrEmployee]
+    serializer_class = PregnancyDetailSerializer
+    lookup_url_kwarg = 'pregnancy_id'
+    
+    def get_queryset(self):
+        patient_id = self.kwargs.get('patient_id')
+        return Pregnancy.objects.filter(
+            patient_profile__user_id=patient_id
+        ).select_related('patient_profile__user', 'created_by_clinic')
+    
+    @swagger_auto_schema(
+        operation_id='getPatientPregnancyById',
+        operation_summary='Get specific pregnancy for patient',
+        operation_description='''
+Get detailed information about a specific pregnancy for a patient.
+
+**Response includes:**
+- All pregnancy fields: id, lmp, due_date, status, is_high_risk, notes
+- Calculated fields: pregnancy_week, trimester
+- Related data: babies (nested list with vitals), visits, vitals
+- Counts: babies_count, visits_count, vitals_count
+
+**Note:** Only accessible by doctors and employees.
+        ''',
+        tags=['Pregnancies']
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class PatientPregnancyUpdateAPIView(generics.UpdateAPIView):
+    """PATCH/PUT /api/patients/{patient_id}/pregnancies/{pregnancy_id}/update/ - Update specific pregnancy for patient"""
+    permission_classes = [IsAuthenticated, IsDoctorOrEmployee]
+    serializer_class = PregnancyUpdateSerializer
+    lookup_url_kwarg = 'pregnancy_id'
+    
+    def get_queryset(self):
+        patient_id = self.kwargs.get('patient_id')
+        return Pregnancy.objects.filter(
+            patient_profile__user_id=patient_id
+        ).select_related('patient_profile__user', 'created_by_clinic')
+    
+    @swagger_auto_schema(
+        operation_id='patchPatientPregnancyById',
+        operation_summary='Update specific pregnancy for patient',
+        operation_description='''
+Update a specific pregnancy for a patient.
+
+**Updatable fields:**
+- lmp: Last menstrual period date (YYYY-MM-DD)
+- due_date: Expected due date (YYYY-MM-DD)
+- status: ongoing, delivered, miscarriage, ectopic, stillbirth
+- is_high_risk: Boolean
+- notes: Text
+
+**Returns:** Full updated pregnancy object with all related data.
+
+**Note:** Only accessible by doctors and employees.
+        ''',
+        tags=['Pregnancies'],
+        request_body=PregnancyUpdateSerializer,
+        responses={
+            200: PregnancyDetailSerializer
+        }
+    )
+    def patch(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_id='putPatientPregnancyById',
+        operation_summary='Update specific pregnancy for patient (full)',
+        operation_description='Full update of a specific pregnancy for a patient.',
+        tags=['Pregnancies'],
+        request_body=PregnancyUpdateSerializer,
+        responses={
+            200: PregnancyDetailSerializer
+        }
+    )
+    def put(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        # Return full pregnancy details
+        output_serializer = PregnancyDetailSerializer(instance)
+        return Response(output_serializer.data)
+
+
+class PatientPregnancyDeleteAPIView(generics.DestroyAPIView):
+    """DELETE /api/patients/{patient_id}/pregnancies/{pregnancy_id}/delete/ - Delete specific pregnancy for patient"""
+    permission_classes = [IsAuthenticated, IsDoctorOrEmployee]
+    lookup_url_kwarg = 'pregnancy_id'
+    
+    def get_queryset(self):
+        patient_id = self.kwargs.get('patient_id')
+        return Pregnancy.objects.filter(
+            patient_profile__user_id=patient_id
+        ).select_related('patient_profile__user')
+    
+    @swagger_auto_schema(
+        operation_id='deletePatientPregnancyById',
+        operation_summary='Delete specific pregnancy for patient',
+        operation_description='''
+Delete a specific pregnancy for a patient.
+
+**Warning:** This will also delete all associated:
+- Visits
+- Vitals (mother's)
+- Babies and their vitals
+
+**Returns:** 204 No Content on success.
+
+**Note:** Only accessible by doctors and employees.
+        ''',
+        tags=['Pregnancies'],
+        responses={
+            204: openapi.Response(description='Pregnancy deleted successfully')
+        }
+    )
+    def delete(self, request, *args, **kwargs):
+        return super().delete(request, *args, **kwargs)
+
+
 class PregnancyDetailAPIView(PregnancyQuerySetMixin, generics.RetrieveAPIView):
     """GET /api/pregnancies/{id}/ - Get pregnancy details"""
     permission_classes = [IsAuthenticated]
@@ -928,12 +1059,7 @@ class BabyQuerySetMixin:
         user = self.request.user
         
         if user.user_type == 'doctor':
-            from apps.clinics.models import Clinic
-            clinic_ids = Clinic.objects.filter(doctor=user).values_list('id', flat=True)
-            return Baby.objects.filter(
-                Q(pregnancy__created_by_clinic_id__in=clinic_ids) |
-                Q(pregnancy__visits__clinic_id__in=clinic_ids)
-            ).select_related('pregnancy__patient_profile__user').distinct()
+            return Baby.objects.all().select_related('pregnancy__patient_profile__user').distinct()
         
         elif user.user_type == 'employee':
             from apps.clinics.models import Employee
@@ -1056,4 +1182,379 @@ class BabyDeleteAPIView(BabyQuerySetMixin, generics.DestroyAPIView):
     )
     def delete(self, request, *args, **kwargs):
         return super().delete(request, *args, **kwargs)
+
+
+# ============================================================================
+# USER ATTACHMENT VIEWS
+# ============================================================================
+
+class UserMeAttachmentListUploadAPIView(APIView):
+    """
+    GET /api/users/me/attachments/ - List current user's attachments
+    POST /api/users/me/attachments/ - Upload attachments for current user
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    
+    @swagger_auto_schema(
+        operation_id='getUserMeAttachments',
+        operation_summary='List my attachments',
+        operation_description='''
+List all attachments for the authenticated user.
+
+**Response includes:**
+- Presigned B2 URLs for secure file access
+- Original filename extracted from stored name
+- File type and upload date
+        ''',
+        tags=['User Attachments'],
+        responses={
+            200: UserAttachmentSerializer(many=True)
+        }
+    )
+    def get(self, request):
+        attachments = UserAttachment.objects.filter(user=request.user)
+        serializer = UserAttachmentSerializer(attachments, many=True)
+        return Response({
+            'attachments': serializer.data,
+            'count': attachments.count()
+        }, status=status.HTTP_200_OK)
+    
+    @swagger_auto_schema(
+        operation_id='postUserMeAttachments',
+        operation_summary='Upload my attachments',
+        operation_description='''
+Upload one or more file attachments for the authenticated user.
+
+**Request:**
+- Use `multipart/form-data` encoding
+- Field name: `attachments` (can send multiple files)
+- Optional: `description` field for each file (single description applies to all)
+- Supported: Any file type (images, PDFs, documents, etc.)
+
+**Form Fields:**
+- `attachments` (file, required): Files to upload (can be multiple)
+- `description` (string, optional): Description for the attachments
+
+**Example (curl):**
+```bash
+curl -X POST 'http://localhost:8000/api/users/me/attachments/' \\
+  -H 'Authorization: Bearer {token}' \\
+  -F "attachments=@insurance_card.pdf" \\
+  -F "attachments=@id_card.jpg" \\
+  -F "description=Medical documents"
+```
+
+**Response:**
+Returns the list of uploaded attachments with presigned URLs.
+        ''',
+        tags=['User Attachments'],
+        responses={
+            200: UserAttachmentSerializer(many=True),
+            400: 'No files provided'
+        }
+    )
+    def post(self, request):
+        # Get uploaded files
+        files = request.FILES.getlist('attachments')
+        if not files:
+            files = request.FILES.getlist('files')
+        
+        if not files:
+            return Response(
+                {'error': 'No files provided. Use field name "attachments" or "files".'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        description = request.data.get('description', '')
+        uploaded_attachments = []
+        errors = []
+        
+        for file_obj in files:
+            try:
+                # Naming: user_{id}_att_{timestamp}_{original_name}
+                timestamp = int(time.time())
+                safe_name = os.path.basename(file_obj.name).replace(' ', '_')
+                target_filename = f"user_{request.user.id}_att_{timestamp}_{safe_name}"
+                
+                # Upload to B2
+                uploaded = upload_file_to_b2(file_obj, target_filename)
+                
+                # Create attachment record
+                attachment = UserAttachment.objects.create(
+                    user=request.user,
+                    name=uploaded.file_name,
+                    file_id=uploaded.id_,
+                    file_type=file_obj.content_type or 'application/octet-stream',
+                    description=description
+                )
+                uploaded_attachments.append(attachment)
+                
+            except Exception as e:
+                errors.append({
+                    'file': file_obj.name,
+                    'error': str(e)
+                })
+        
+        # Serialize and return
+        serializer = UserAttachmentSerializer(uploaded_attachments, many=True)
+        response_data = {
+            'attachments': serializer.data,
+            'uploaded_count': len(uploaded_attachments)
+        }
+        
+        if errors:
+            response_data['errors'] = errors
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class UserMeAttachmentDeleteAPIView(APIView):
+    """DELETE /api/users/me/attachments/{attachment_id}/ - Delete an attachment"""
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_id='deleteUserMeAttachment',
+        operation_summary='Delete my attachment',
+        operation_description='''
+Delete a specific attachment from the authenticated user's account.
+
+**Warning:** This permanently deletes the file from storage (B2).
+        ''',
+        tags=['User Attachments'],
+        responses={
+            200: openapi.Response(
+                description='Attachment deleted successfully',
+                examples={
+                    'application/json': {
+                        'message': 'Attachment deleted successfully'
+                    }
+                }
+            ),
+            404: 'Attachment not found'
+        }
+    )
+    def delete(self, request, attachment_id):
+        try:
+            attachment = UserAttachment.objects.get(
+                pk=attachment_id,
+                user=request.user
+            )
+            
+            # Delete from B2
+            delete_file_from_b2(attachment.file_id, attachment.name)
+            
+            # Delete from database
+            attachment.delete()
+            
+            return Response(
+                {'message': 'Attachment deleted successfully'},
+                status=status.HTTP_200_OK
+            )
+        except UserAttachment.DoesNotExist:
+            return Response(
+                {'error': 'Attachment not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class PatientAttachmentListUploadAPIView(APIView):
+    """
+    GET /api/patients/{pk}/attachments/ - List patient's attachments (for doctors/employees)
+    POST /api/patients/{pk}/attachments/ - Upload attachments for patient (for doctors/employees)
+    """
+    permission_classes = [IsAuthenticated, IsDoctorOrEmployee]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    
+    @swagger_auto_schema(
+        operation_id='getPatientAttachments',
+        operation_summary='List patient attachments',
+        operation_description='''
+List all attachments for a specific patient.
+
+**Access:** Only doctors and employees can access this endpoint.
+
+**Response includes:**
+- Presigned B2 URLs for secure file access
+- Original filename extracted from stored name
+- File type and upload date
+        ''',
+        tags=['Patient Attachments'],
+        responses={
+            200: UserAttachmentSerializer(many=True),
+            404: 'Patient not found'
+        }
+    )
+    def get(self, request, pk):
+        try:
+            patient = User.objects.get(pk=pk, user_type='patient')
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Patient not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        attachments = UserAttachment.objects.filter(user=patient)
+        serializer = UserAttachmentSerializer(attachments, many=True)
+        return Response({
+            'patient_id': patient.id,
+            'patient_name': patient.name,
+            'attachments': serializer.data,
+            'count': attachments.count()
+        }, status=status.HTTP_200_OK)
+    
+    @swagger_auto_schema(
+        operation_id='postPatientAttachments',
+        operation_summary='Upload patient attachments',
+        operation_description='''
+Upload one or more file attachments for a specific patient.
+
+**Access:** Only doctors and employees can access this endpoint.
+
+**Request:**
+- Use `multipart/form-data` encoding
+- Field name: `attachments` (can send multiple files)
+- Optional: `description` field for each file
+- Supported: Any file type (images, PDFs, documents, etc.)
+
+**Form Fields:**
+- `attachments` (file, required): Files to upload (can be multiple)
+- `description` (string, optional): Description for the attachments
+
+**Example (curl):**
+```bash
+curl -X POST 'http://localhost:8000/api/patients/{id}/attachments/' \\
+  -H 'Authorization: Bearer {token}' \\
+  -F "attachments=@lab_results.pdf" \\
+  -F "description=Lab results from Jan 2026"
+```
+        ''',
+        tags=['Patient Attachments'],
+        responses={
+            200: UserAttachmentSerializer(many=True),
+            400: 'No files provided',
+            404: 'Patient not found'
+        }
+    )
+    def post(self, request, pk):
+        try:
+            patient = User.objects.get(pk=pk, user_type='patient')
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Patient not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get uploaded files
+        files = request.FILES.getlist('attachments')
+        if not files:
+            files = request.FILES.getlist('files')
+        
+        if not files:
+            return Response(
+                {'error': 'No files provided. Use field name "attachments" or "files".'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        description = request.data.get('description', '')
+        uploaded_attachments = []
+        errors = []
+        
+        for file_obj in files:
+            try:
+                # Naming: user_{id}_att_{timestamp}_{original_name}
+                timestamp = int(time.time())
+                safe_name = os.path.basename(file_obj.name).replace(' ', '_')
+                target_filename = f"user_{patient.id}_att_{timestamp}_{safe_name}"
+                
+                # Upload to B2
+                uploaded = upload_file_to_b2(file_obj, target_filename)
+                
+                # Create attachment record
+                attachment = UserAttachment.objects.create(
+                    user=patient,
+                    name=uploaded.file_name,
+                    file_id=uploaded.id_,
+                    file_type=file_obj.content_type or 'application/octet-stream',
+                    description=description
+                )
+                uploaded_attachments.append(attachment)
+                
+            except Exception as e:
+                errors.append({
+                    'file': file_obj.name,
+                    'error': str(e)
+                })
+        
+        # Serialize and return
+        serializer = UserAttachmentSerializer(uploaded_attachments, many=True)
+        response_data = {
+            'patient_id': patient.id,
+            'attachments': serializer.data,
+            'uploaded_count': len(uploaded_attachments)
+        }
+        
+        if errors:
+            response_data['errors'] = errors
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class PatientAttachmentDeleteAPIView(APIView):
+    """DELETE /api/patients/{pk}/attachments/{attachment_id}/ - Delete patient attachment"""
+    permission_classes = [IsAuthenticated, IsDoctorOrEmployee]
+    
+    @swagger_auto_schema(
+        operation_id='deletePatientAttachment',
+        operation_summary='Delete patient attachment',
+        operation_description='''
+Delete a specific attachment from a patient's account.
+
+**Access:** Only doctors and employees can access this endpoint.
+
+**Warning:** This permanently deletes the file from storage (B2).
+        ''',
+        tags=['Patient Attachments'],
+        responses={
+            200: openapi.Response(
+                description='Attachment deleted successfully',
+                examples={
+                    'application/json': {
+                        'message': 'Attachment deleted successfully'
+                    }
+                }
+            ),
+            404: 'Patient or attachment not found'
+        }
+    )
+    def delete(self, request, pk, attachment_id):
+        try:
+            patient = User.objects.get(pk=pk, user_type='patient')
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Patient not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        try:
+            attachment = UserAttachment.objects.get(
+                pk=attachment_id,
+                user=patient
+            )
+            
+            # Delete from B2
+            delete_file_from_b2(attachment.file_id, attachment.name)
+            
+            # Delete from database
+            attachment.delete()
+            
+            return Response(
+                {'message': 'Attachment deleted successfully'},
+                status=status.HTTP_200_OK
+            )
+        except UserAttachment.DoesNotExist:
+            return Response(
+                {'error': 'Attachment not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 

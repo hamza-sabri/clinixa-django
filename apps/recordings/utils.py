@@ -74,3 +74,23 @@ def upload_file_to_b2(file_obj, file_name):
     )
     
     return uploaded_file
+
+
+def delete_file_from_b2(file_id, file_name):
+    """
+    Delete a file from B2 by file_id and file_name.
+    
+    Args:
+        file_id: The B2 file ID (stored in attachment records)
+        file_name: The B2 file name/key (stored in attachment records)
+    
+    Returns:
+        True if deletion was successful, False otherwise
+    """
+    try:
+        bucket = get_b2_bucket()
+        bucket.delete_file_version(file_id, file_name)
+        return True
+    except Exception as e:
+        print(f"Error deleting file from B2: {e}")
+        return False
