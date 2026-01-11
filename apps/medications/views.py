@@ -130,10 +130,8 @@ class PatientMedQuerySetMixin:
         
         # Doctors see medication records of patients who visited their clinics
         elif user.user_type == 'doctor':
-            from apps.visits.models import Visit
-            clinic_ids = Clinic.objects.filter(doctor=user).values_list('id', flat=True)
-            patient_ids = Visit.objects.filter(clinic_id__in=clinic_ids).values_list('patient_id', flat=True).distinct()
-            return PatientMed.objects.filter(patient_id__in=patient_ids).select_related('patient', 'med', 'created_by')
+            return PatientMed.objects.all().select_related('patient', 'med', 'created_by')
+
         
         # Employees see medication records based on their clinic assignments
         elif user.user_type == 'employee':

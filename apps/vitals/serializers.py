@@ -272,6 +272,7 @@ class BabyVitalListSerializer(serializers.ModelSerializer):
     baby_name = serializers.CharField(source='baby.name', read_only=True)
     patient_name = serializers.SerializerMethodField()
     pregnancy_id = serializers.SerializerMethodField()
+    visit_attachments = serializers.SerializerMethodField()
     
     class Meta:
         model = BabyVital
@@ -279,7 +280,7 @@ class BabyVitalListSerializer(serializers.ModelSerializer):
             'id', 'baby', 'baby_name', 'visit',
             'pregnancy_id', 'patient_name',
             'puls', 'systolic', 'diastolic', 'o2', 'weight', 'age',
-            'reading_date', 'due_date'
+            'reading_date', 'due_date', 'note', 'files', 'visit_attachments'
         ]
     
     def get_patient_name(self, obj):
@@ -293,6 +294,14 @@ class BabyVitalListSerializer(serializers.ModelSerializer):
         if obj.baby:
             return obj.baby.pregnancy.id
         return None
+
+    def get_visit_attachments(self, obj):
+        """Get attachments from the related visit with presigned URLs."""
+        if obj.visit:
+            from apps.visits.serializers import VisitAttachmentSerializer
+            attachments = obj.visit.attachments.all()
+            return VisitAttachmentSerializer(attachments, many=True).data
+        return []
 
 
 class BabyVitalCreateSerializer(serializers.ModelSerializer):

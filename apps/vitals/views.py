@@ -271,6 +271,11 @@ Get a list of baby vital records.
 **Filters:**
 - `?baby=` - Filter by baby ID
 - `?visit=` - Filter by visit ID
+
+**Response Fields:**
+- `note` - Notes
+- `files` - Array of file URLs attached to the vital (e.g., Cloudinary URLs)
+- `visit_attachments` - Array of attachments from the related visit (with presigned B2 URLs)
         ''' + PAGINATION_DESCRIPTION,
         tags=['Baby Vitals'],
         manual_parameters=[
@@ -280,6 +285,9 @@ Get a list of baby vital records.
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return super().get_queryset().prefetch_related('visit__attachments')
 
 
 class BabyVitalDetailAPIView(BabyVitalQuerySetMixin, generics.RetrieveAPIView):
