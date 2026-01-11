@@ -795,7 +795,15 @@ class PatientPregnancyListAPIView(generics.ListAPIView):
     @swagger_auto_schema(
         operation_id='getPatientPregnancies',
         operation_summary='List patient pregnancies',
-        operation_description='Get all pregnancies for a specific patient.' + PAGINATION_DESCRIPTION,
+        operation_description='''
+Get all pregnancies for a specific patient.
+
+**Response includes:**
+- Basic pregnancy info: id, lmp, due_date, status, is_high_risk
+- Calculated fields: pregnancy_week, trimester
+- Counts: babies_count
+- Notes: pregnancy notes
+        ''' + PAGINATION_DESCRIPTION,
         tags=['Pregnancies'],
         manual_parameters=PAGINATION_PARAMETERS
     )

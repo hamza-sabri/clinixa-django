@@ -722,7 +722,7 @@ class PregnancyListSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Pregnancy
-        fields = ['id', 'lmp', 'due_date', 'status', 'is_high_risk', 'pregnancy_week', 'trimester', 'babies_count', 'created_at']
+        fields = ['id', 'lmp', 'due_date', 'status', 'is_high_risk', 'pregnancy_week', 'trimester', 'babies_count', 'notes', 'created_at']
     
     def get_babies_count(self, obj):
         return obj.babies.count()
