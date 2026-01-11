@@ -1,4 +1,5 @@
 from rest_framework import generics, status
+from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -6,13 +7,16 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+import os
+import time
 
-from .models import Vital, BabyVital
+from .models import Vital, BabyVital, VitalAttachment
 from .serializers import (
     VitalSerializer,
     VitalCreateSerializer,
     VitalUpdateSerializer,
     VitalListSerializer,
+    VitalAttachmentSerializer,
     BabyVitalSerializer,
     BabyVitalCreateSerializer,
     BabyVitalUpdateSerializer,
@@ -20,6 +24,7 @@ from .serializers import (
 )
 from apps.clinics.models import Clinic, Employee
 from apps.core.swagger import PAGINATION_PARAMETERS, PAGINATION_DESCRIPTION
+from apps.recordings.utils import upload_file_to_b2
 
 
 # ============================================================================
@@ -67,7 +72,7 @@ class VitalListAPIView(VitalQuerySetMixin, generics.ListAPIView):
     filterset_fields = ['pregnancy', 'visit']
     
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().prefetch_related('visit__attachments', 'attachments')
         
         # Handle patient=me filter
         patient_filter = self.request.query_params.get('patient')
@@ -96,6 +101,13 @@ Get a list of vital records (mother's vitals).
 - `?patient=me` - (For patients) Get only your own vitals
 - `?pregnancy=` - Filter by pregnancy ID
 - `?visit=` - Filter by visit ID
+
+**Response Fields:**
+- `note` - Patient's notes for the vital record
+- `dr_note` - Doctor's notes for the vital record
+- `files` - Array of file URLs attached to the vital (e.g., Cloudinary URLs)
+- `attachments` - Array of direct vital attachments (with presigned B2 URLs)
+- `visit_attachments` - Array of attachments from the related visit (with presigned B2 URLs)
         ''' + PAGINATION_DESCRIPTION,
         tags=['Vitals'],
         manual_parameters=[
@@ -357,3 +369,148 @@ class BabyVitalDeleteAPIView(BabyVitalQuerySetMixin, generics.DestroyAPIView):
     )
     def delete(self, request, *args, **kwargs):
         return super().delete(request, *args, **kwargs)
+
+
+# ============================================================================
+# VITAL ATTACHMENT VIEWS
+# ============================================================================
+
+class VitalAttachmentUploadAPIView(VitalQuerySetMixin, APIView):
+    """POST /api/vitals/{id}/attachments/ - Upload attachments to a vital record"""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    @swagger_auto_schema(
+        operation_id='postVitalAttachments',
+        operation_summary='Upload attachments to a vital record',
+        operation_description='''
+Upload one or more file attachments to a vital record.
+
+**Request:**
+- Use `multipart/form-data` encoding
+- Field name: `attachments` (can send multiple files)
+- Supported: Any file type (images, PDFs, documents, etc.)
+
+**Example (curl):**
+```bash
+curl -X POST 'http://localhost:8000/api/vitals/{id}/attachments/' \\
+  -H 'Authorization: Bearer {token}' \\
+  -F "attachments=@file1.pdf" \\
+  -F "attachments=@file2.jpg"
+```
+
+**Response:**
+Returns the list of uploaded attachments with presigned URLs.
+        ''',
+        tags=['Vitals'],
+        manual_parameters=[
+            openapi.Parameter(
+                'attachments',
+                openapi.IN_FORM,
+                description='Files to upload (can be multiple)',
+                type=openapi.TYPE_FILE,
+                required=True
+            ),
+        ],
+        responses={
+            200: VitalAttachmentSerializer(many=True),
+            404: 'Vital record not found'
+        }
+    )
+    def post(self, request, pk):
+        # Get the vital record
+        try:
+            queryset = self.get_queryset()
+            vital = queryset.get(pk=pk)
+        except Vital.DoesNotExist:
+            return Response(
+                {'error': 'Vital record not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get uploaded files
+        files = request.FILES.getlist('attachments')
+        if not files:
+            files = request.FILES.getlist('files')
+        
+        if not files:
+            return Response(
+                {'error': 'No files provided. Use field name "attachments" or "files".'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        uploaded_attachments = []
+        errors = []
+        
+        for file_obj in files:
+            try:
+                # Naming: vital_{id}_att_{timestamp}_{original_name}
+                timestamp = int(time.time())
+                safe_name = os.path.basename(file_obj.name).replace(' ', '_')
+                target_filename = f"vital_{vital.id}_att_{timestamp}_{safe_name}"
+                
+                # Upload to B2
+                uploaded = upload_file_to_b2(file_obj, target_filename)
+                
+                # Create attachment record
+                attachment = VitalAttachment.objects.create(
+                    vital=vital,
+                    name=uploaded.file_name,
+                    file_id=uploaded.id_,
+                    file_type=file_obj.content_type or 'application/octet-stream'
+                )
+                uploaded_attachments.append(attachment)
+                
+            except Exception as e:
+                errors.append({
+                    'file': file_obj.name,
+                    'error': str(e)
+                })
+        
+        # Serialize and return
+        serializer = VitalAttachmentSerializer(uploaded_attachments, many=True)
+        response_data = {
+            'attachments': serializer.data,
+            'uploaded_count': len(uploaded_attachments)
+        }
+        
+        if errors:
+            response_data['errors'] = errors
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class VitalAttachmentDeleteAPIView(VitalQuerySetMixin, APIView):
+    """DELETE /api/vitals/{vital_id}/attachments/{attachment_id}/ - Delete an attachment"""
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_id='deleteVitalAttachment',
+        operation_summary='Delete a vital attachment',
+        operation_description='Delete a specific attachment from a vital record.',
+        tags=['Vitals'],
+        responses={
+            200: 'Attachment deleted successfully',
+            404: 'Attachment not found'
+        }
+    )
+    def delete(self, request, vital_id, attachment_id):
+        try:
+            queryset = self.get_queryset()
+            vital = queryset.get(pk=vital_id)
+            attachment = VitalAttachment.objects.get(pk=attachment_id, vital=vital)
+            attachment.delete()
+            return Response(
+                {'message': 'Attachment deleted successfully'},
+                status=status.HTTP_200_OK
+            )
+        except Vital.DoesNotExist:
+            return Response(
+                {'error': 'Vital record not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except VitalAttachment.DoesNotExist:
+            return Response(
+                {'error': 'Attachment not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )

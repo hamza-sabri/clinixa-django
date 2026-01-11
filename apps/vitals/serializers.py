@@ -1,5 +1,42 @@
 from rest_framework import serializers
-from .models import Vital, BabyVital
+from .models import Vital, BabyVital, VitalAttachment
+from apps.recordings.utils import generate_presigned_url
+
+
+# ============================================================================
+# VITAL ATTACHMENT SERIALIZER
+# ============================================================================
+
+class VitalAttachmentSerializer(serializers.ModelSerializer):
+    """Serializer for vital attachments."""
+    url = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = VitalAttachment
+        fields = ['id', 'name', 'display_name', 'file_type', 'created_at', 'url']
+        
+    def get_url(self, obj):
+        # Generate presigned URL for B2 file
+        return generate_presigned_url(obj.name)
+    
+    def get_display_name(self, obj):
+        """Extract the original filename from the B2 stored name.
+        
+        B2 name format: vital_{id}_att_{timestamp}_{original_name}
+        We want to return just the original_name part.
+        """
+        if not obj.name:
+            return None
+        
+        # Split by underscore and find where the original name starts
+        # Format: vital_123_att_1768003006_sample-local-pdf.pdf
+        parts = obj.name.split('_')
+        if len(parts) >= 5:
+            # Skip first 4 parts: vital, {id}, att, {timestamp}
+            original_name = '_'.join(parts[4:])
+            return original_name
+        return obj.name
 
 
 # ============================================================================
@@ -65,6 +102,8 @@ class VitalListSerializer(serializers.ModelSerializer):
     patient_name = serializers.SerializerMethodField()
     patient_id = serializers.SerializerMethodField()
     pregnancy_week = serializers.SerializerMethodField()
+    attachments = VitalAttachmentSerializer(many=True, read_only=True)
+    visit_attachments = serializers.SerializerMethodField()
     
     class Meta:
         model = Vital
@@ -72,7 +111,7 @@ class VitalListSerializer(serializers.ModelSerializer):
             'id', 'pregnancy', 'pregnancy_week', 'visit',
             'patient_id', 'patient_name',
             'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight', 'sugar_level',
-            'reading_date', 'mood'
+            'reading_date', 'mood', 'note', 'dr_note', 'files', 'attachments', 'visit_attachments'
         ]
     
     def get_patient_name(self, obj):
@@ -93,6 +132,15 @@ class VitalListSerializer(serializers.ModelSerializer):
         if obj.pregnancy:
             return obj.pregnancy.pregnancy_week
         return None
+    
+    def get_visit_attachments(self, obj):
+        """Get attachments from the related visit with presigned URLs."""
+        if obj.visit:
+            from apps.visits.serializers import VisitAttachmentSerializer
+            attachments = obj.visit.attachments.all()
+            return VisitAttachmentSerializer(attachments, many=True).data
+        return []
+
 
 
 class VitalCreateSerializer(serializers.ModelSerializer):

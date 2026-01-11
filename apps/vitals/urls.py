@@ -6,6 +6,8 @@ from .views import (
     VitalCreateAPIView,
     VitalUpdateAPIView,
     VitalDeleteAPIView,
+    VitalAttachmentUploadAPIView,
+    VitalAttachmentDeleteAPIView,
     BabyVitalListAPIView,
     BabyVitalDetailAPIView,
     BabyVitalCreateAPIView,
@@ -22,6 +24,10 @@ urlpatterns = [
     path('create/', VitalCreateAPIView.as_view(), name='vital-create'),
     path('<int:pk>/update/', VitalUpdateAPIView.as_view(), name='vital-update'),
     path('<int:pk>/delete/', VitalDeleteAPIView.as_view(), name='vital-delete'),
+    
+    # Vital Attachments
+    path('<int:pk>/attachments/', VitalAttachmentUploadAPIView.as_view(), name='vital-attachment-upload'),
+    path('<int:vital_id>/attachments/<int:attachment_id>/', VitalAttachmentDeleteAPIView.as_view(), name='vital-attachment-delete'),
     
     # Baby Vitals
     path('baby-vitals/', BabyVitalListAPIView.as_view(), name='baby-vital-list'),

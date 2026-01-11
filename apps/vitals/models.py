@@ -154,3 +154,22 @@ class BabyVital(models.Model):
 
 
 
+
+class VitalAttachment(models.Model):
+    """
+    Attachments for a vital record (e.g. lab results, x-rays, etc.)
+    Files are stored in Backblaze B2.
+    """
+    vital = models.ForeignKey(
+        Vital,
+        on_delete=models.CASCADE,
+        related_name='attachments',
+        verbose_name='vital'
+    )
+    name = models.CharField('file name', max_length=255)
+    file_id = models.CharField('b2 file id', max_length=200)  # Store B2 file ID for secure access
+    file_type = models.CharField('file type', max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.vital})"
