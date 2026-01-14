@@ -73,7 +73,7 @@ class VisitListAPIView(VisitQuerySetMixin, generics.ListAPIView):
     serializer_class = VisitListSerializer
     pagination_class = VisitsPagination
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['clinic', 'pregnancy', 'status', 'urgency']
+    filterset_fields = ['clinic', 'pregnancy', 'patient', 'status', 'urgency']
     ordering = ['time']  # Default sort by time (earliest first)
     
     def get_queryset(self):
@@ -199,12 +199,14 @@ class VisitCreateAPIView(generics.CreateAPIView):
         operation_id='postVisits',
         operation_summary='Create a new visit',
         operation_description='''
-Create a new visit for a pregnancy.
+Create a new visit. Either pregnancy or patient must be provided.
 
 **Required fields:**
-- `pregnancy` - Pregnancy ID
 - `clinic` - Clinic ID
 - `time` - Appointment time (ISO 8601 format)
+- One of:
+  - `pregnancy` - Pregnancy ID (for pregnancy-related visits)
+  - `patient` - Patient ID (for non-pregnancy visits)
 
 **Optional fields:**
 - `status` - Visit status (defaults to pending)
@@ -215,6 +217,7 @@ Create a new visit for a pregnancy.
 You can create vital records along with the visit:
 
 ```json
+// Pregnancy visit example
 {
     "pregnancy": 1,
     "clinic": 1,
@@ -228,7 +231,20 @@ You can create vital records along with the visit:
         {"baby": 1, "puls": 145, "weight": 2.5}
     ]
 }
+
+// Patient-only visit example (no pregnancy)
+{
+    "patient": 42,
+    "clinic": 1,
+    "time": "2025-01-15T10:00:00Z",
+    "vital": {
+        "systolic": 120,
+        "diastolic": 80
+    }
+}
 ```
+
+**Note:** When creating a patient-only visit with vitals, a PatientVital record is created instead of a pregnancy-linked Vital.
         ''',
         tags=['Visits'],
         request_body=VisitCreateSerializer,

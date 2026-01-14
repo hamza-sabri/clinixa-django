@@ -42,43 +42,46 @@ class VisitAttachmentSerializer(serializers.ModelSerializer):
 
 class VisitSerializer(serializers.ModelSerializer):
     """Serializer for Visit model - detailed view."""
-    
-    # Patient info from pregnancy
+
+    # Patient info from pregnancy or direct patient field
     patient_id = serializers.SerializerMethodField()
     patient_name = serializers.SerializerMethodField()
     patient_email = serializers.SerializerMethodField()
     patient_phone = serializers.SerializerMethodField()
-    
-    # Pregnancy info
+
+    # Pregnancy info (nullable)
     pregnancy_week = serializers.SerializerMethodField()
-    pregnancy_status = serializers.CharField(source='pregnancy.status', read_only=True)
-    
+    pregnancy_status = serializers.SerializerMethodField()
+
     # Clinic info
     clinic_name = serializers.CharField(source='clinic.name', read_only=True)
     clinic_location = serializers.CharField(source='clinic.location', read_only=True)
-    
-    # Vitals attached to this visit
-    has_vital = serializers.SerializerMethodField()
+
     # Vitals attached to this visit
     has_vital = serializers.SerializerMethodField()
     baby_vitals_count = serializers.SerializerMethodField()
     recording_url = serializers.SerializerMethodField()
-    
+
     # Attachments
     attachments = VisitAttachmentSerializer(many=True, read_only=True)
-    
+
     class Meta:
         model = Visit
         fields = [
             'id', 'clinic', 'clinic_name', 'clinic_location',
             'pregnancy', 'pregnancy_week', 'pregnancy_status',
-            'patient_id', 'patient_name', 'patient_email', 'patient_phone',
+            'patient', 'patient_id', 'patient_name', 'patient_email', 'patient_phone',
             'time', 'status', 'note', 'urgency',
             'has_vital', 'baby_vitals_count',
             'recording_url', 'attachments',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_pregnancy_status(self, obj):
+        if obj.pregnancy:
+            return obj.pregnancy.status
+        return None
     
     def get_patient_id(self, obj):
         if obj.pregnancy:
@@ -127,18 +130,18 @@ class VisitSerializer(serializers.ModelSerializer):
 
 class VisitListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for visit lists."""
-    
+
     patient_name = serializers.SerializerMethodField()
     patient_id = serializers.SerializerMethodField()
     clinic_name = serializers.CharField(source='clinic.name', read_only=True)
     pregnancy_week = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Visit
         fields = [
-            'id', 'clinic', 'clinic_name', 
+            'id', 'clinic', 'clinic_name',
             'pregnancy', 'pregnancy_week',
-            'patient_id', 'patient_name', 
+            'patient', 'patient_id', 'patient_name',
             'time', 'status', 'urgency'
         ]
     
@@ -188,56 +191,91 @@ class NestedBabyVitalCreateSerializer(serializers.Serializer):
 
 
 class VisitCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating a visit with optional vitals."""
-    
+    """Serializer for creating a visit with optional vitals.
+
+    Either pregnancy or patient must be provided.
+    """
+
     # Optional nested vitals
     vital = NestedVitalCreateSerializer(required=False, write_only=True)
     baby_vitals = NestedBabyVitalCreateSerializer(many=True, required=False, write_only=True)
-    
+
     class Meta:
         model = Visit
-        fields = ['pregnancy', 'clinic', 'time', 'status', 'note', 'urgency', 'vital', 'baby_vitals']
+        fields = ['pregnancy', 'patient', 'clinic', 'time', 'status', 'note', 'urgency', 'vital', 'baby_vitals']
         extra_kwargs = {
-            'pregnancy': {'required': True},
+            'pregnancy': {'required': False, 'allow_null': True},
+            'patient': {'required': False, 'allow_null': True},
             'clinic': {'required': True},
             'time': {'required': True},
             'status': {'required': False},
             'note': {'required': False},
             'urgency': {'required': False},
         }
-    
+
     def validate_time(self, value):
         # Allow past times for recording completed visits
         return value
-    
-    def validate_pregnancy(self, value):
-        # Ensure pregnancy exists and is accessible
-        if not value:
-            raise serializers.ValidationError('Pregnancy is required.')
-        return value
-    
+
+    def validate(self, attrs):
+        """Ensure either pregnancy or patient is provided."""
+        pregnancy = attrs.get('pregnancy')
+        patient = attrs.get('patient')
+
+        if not pregnancy and not patient:
+            raise serializers.ValidationError({
+                'non_field_errors': ['Either pregnancy or patient must be provided.']
+            })
+
+        # If patient is provided, ensure they are a patient type user
+        if patient and patient.user_type != 'patient':
+            raise serializers.ValidationError({
+                'patient': 'The specified user is not a patient.'
+            })
+
+        # If both are provided, ensure patient matches pregnancy's patient
+        if pregnancy and patient:
+            pregnancy_patient = pregnancy.patient_profile.user
+            if pregnancy_patient.id != patient.id:
+                raise serializers.ValidationError({
+                    'patient': 'Patient does not match the pregnancy owner.'
+                })
+
+        return attrs
+
     def create(self, validated_data):
         vital_data = validated_data.pop('vital', None)
         baby_vitals_data = validated_data.pop('baby_vitals', [])
-        
+
         # Create the visit
         visit = super().create(validated_data)
-        
+
         # Create vital record if provided
         if vital_data:
-            from apps.vitals.models import Vital
-            Vital.objects.create(
-                pregnancy=visit.pregnancy,
-                visit=visit,
-                reading_date=visit.time,
-                **vital_data
-            )
-        
-        # Create baby vital records if provided
-        if baby_vitals_data:
+            if visit.pregnancy:
+                # Pregnancy visit - create pregnancy-linked Vital
+                from apps.vitals.models import Vital
+                Vital.objects.create(
+                    pregnancy=visit.pregnancy,
+                    visit=visit,
+                    reading_date=visit.time,
+                    **vital_data
+                )
+            elif visit.patient:
+                # Patient-only visit - create PatientVital
+                from apps.vitals.models import PatientVital
+                PatientVital.objects.create(
+                    patient=visit.patient,
+                    visit=visit,
+                    reading_date=visit.time,
+                    **vital_data
+                )
+
+        # Create baby vital records if provided (only for pregnancy visits)
+        if baby_vitals_data and visit.pregnancy:
             from apps.vitals.models import BabyVital
             from apps.users.models import Baby
-            
+
             for bv_data in baby_vitals_data:
                 baby_id = bv_data.pop('baby')
                 try:
@@ -250,7 +288,7 @@ class VisitCreateSerializer(serializers.ModelSerializer):
                     )
                 except Baby.DoesNotExist:
                     pass  # Skip invalid baby IDs
-        
+
         return visit
 
 

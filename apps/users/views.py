@@ -614,6 +614,150 @@ Create a new pregnancy record for the authenticated patient.
 
 
 # ============================================================================
+# QUICK PATIENT CREATE VIEW
+# ============================================================================
+
+from .serializers import QuickPatientCreateSerializer, QuickPatientCreateResponseSerializer
+
+
+class QuickPatientCreateAPIView(APIView):
+    """
+    Create a patient with optional pregnancy in a single request.
+
+    POST /api/patients/quick-create/
+
+    This endpoint allows doctors/employees to quickly register a new patient
+    and optionally create a pregnancy for them in one API call.
+    """
+    permission_classes = [IsAuthenticated, IsDoctorOrEmployee]
+
+    @swagger_auto_schema(
+        operation_id='postPatientQuickCreate',
+        operation_summary='Quick create patient with optional pregnancy',
+        operation_description='''
+Create a new patient and optionally a pregnancy in a single API call.
+
+**Required fields:**
+- `name` - Patient full name
+- `phone` - Phone number in international format (e.g., +971501234567)
+
+**Optional fields:**
+- `birthday` - Patient birth date (YYYY-MM-DD)
+- `city` - City ID for the patient
+- `lmp` - Last menstrual period date (YYYY-MM-DD). If provided, a pregnancy will be created automatically.
+- `due_date` - Expected due date (YYYY-MM-DD). Optional - if not provided but lmp is, it will be calculated as LMP + 280 days.
+
+**Behavior:**
+- Creates a new patient user with phone-based authentication
+- Creates a PatientProfile for the user
+- If `lmp` is provided, creates an ongoing pregnancy with one baby
+- If `due_date` is not provided, it is calculated from LMP (LMP + 280 days)
+
+**Example request (with pregnancy using lmp only):**
+```json
+{
+    "name": "فاطمة أحمد",
+    "phone": "+971501234567",
+    "birthday": "1990-05-15",
+    "city": 1,
+    "lmp": "2026-01-10"
+}
+```
+
+**Example request (with pregnancy using both lmp and due_date):**
+```json
+{
+    "name": "فاطمة أحمد",
+    "phone": "+971501234567",
+    "birthday": "1990-05-15",
+    "city": 1,
+    "lmp": "2026-01-10",
+    "due_date": "2026-10-17"
+}
+```
+
+**Example request (without pregnancy):**
+```json
+{
+    "name": "سارة محمد",
+    "phone": "+971509876543"
+}
+```
+
+**Note:** Only accessible by doctors and employees.
+        ''',
+        tags=['Patients'],
+        request_body=QuickPatientCreateSerializer,
+        responses={
+            201: openapi.Response(
+                description='Patient created successfully',
+                schema=QuickPatientCreateResponseSerializer,
+                examples={
+                    'application/json': {
+                        'id': 123,
+                        'name': 'فاطمة أحمد',
+                        'phone': '+971501234567',
+                        'birthday': '1990-05-15',
+                        'city': 1,
+                        'city_name': 'Dubai',
+                        'pregnancy': {
+                            'id': 456,
+                            'lmp': '2026-01-10',
+                            'due_date': '2026-10-17',
+                            'status': 'ongoing',
+                            'pregnancy_week': 1,
+                            'trimester': 1,
+                            'babies_count': 1
+                        },
+                        'created_at': '2026-01-14T10:30:00Z'
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description='Validation error',
+                examples={
+                    'application/json': {
+                        'phone': ['A patient with this phone number already exists.']
+                    }
+                }
+            )
+        }
+    )
+    def post(self, request):
+        serializer = QuickPatientCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = serializer.save()
+        pregnancy = getattr(user, '_created_pregnancy', None)
+
+        # Build response
+        response_data = {
+            'id': user.id,
+            'name': user.name,
+            'phone': user.phone,
+            'birthday': user.birth_date,
+            'city': user.city_id,
+            'city_name': user.city.name if user.city else None,
+            'pregnancy': None,
+            'created_at': user.created_at
+        }
+
+        if pregnancy:
+            response_data['pregnancy'] = {
+                'id': pregnancy.id,
+                'lmp': pregnancy.lmp,
+                'due_date': pregnancy.due_date,
+                'status': pregnancy.status,
+                'pregnancy_week': pregnancy.pregnancy_week,
+                'trimester': pregnancy.trimester,
+                'babies_count': pregnancy.babies.count()
+            }
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+# ============================================================================
 # PATIENT VIEWS
 # ============================================================================
 

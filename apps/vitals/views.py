@@ -10,7 +10,9 @@ from drf_yasg import openapi
 import os
 import time
 
-from .models import Vital, BabyVital, VitalAttachment
+from rest_framework.pagination import PageNumberPagination
+
+from .models import Vital, BabyVital, VitalAttachment, PatientVital, PatientVitalAttachment
 from .serializers import (
     VitalSerializer,
     VitalCreateSerializer,
@@ -21,6 +23,11 @@ from .serializers import (
     BabyVitalCreateSerializer,
     BabyVitalUpdateSerializer,
     BabyVitalListSerializer,
+    PatientVitalSerializer,
+    PatientVitalCreateSerializer,
+    PatientVitalUpdateSerializer,
+    PatientVitalListSerializer,
+    PatientVitalAttachmentSerializer,
 )
 from apps.clinics.models import Clinic, Employee
 from apps.core.swagger import PAGINATION_PARAMETERS, PAGINATION_DESCRIPTION
@@ -518,6 +525,331 @@ class VitalAttachmentDeleteAPIView(VitalQuerySetMixin, APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         except VitalAttachment.DoesNotExist:
+            return Response(
+                {'error': 'Attachment not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+# ============================================================================
+# PATIENT VITAL VIEWS (Patient-level vitals, independent of pregnancy)
+# ============================================================================
+
+class PatientVitalsPagination(PageNumberPagination):
+    """Custom pagination for patient vitals - 100 records per page."""
+    page_size = 100
+    page_size_query_param = 'page_size'
+    max_page_size = 500
+
+
+class PatientVitalQuerySetMixin:
+    """Mixin to handle queryset logic for patient vitals based on user type."""
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # Patients see only their own patient vitals
+        if user.user_type == 'patient':
+            return PatientVital.objects.filter(
+                patient=user
+            ).select_related('patient', 'visit')
+
+        # Doctors see all patient vitals (same pattern as VitalQuerySetMixin for pregnancy vitals)
+        elif user.user_type == 'doctor':
+            return PatientVital.objects.all().select_related('patient', 'visit')
+
+        # Employees see patient vitals based on their clinic assignments
+        elif user.user_type == 'employee':
+            clinic_ids = Employee.objects.filter(staff=user).values_list('clinic_id', flat=True)
+            return PatientVital.objects.filter(
+                Q(visit__clinic_id__in=clinic_ids) |
+                Q(patient__visits__clinic_id__in=clinic_ids)
+            ).select_related('patient', 'visit').distinct()
+
+        return PatientVital.objects.none()
+
+
+class PatientVitalListAPIView(PatientVitalQuerySetMixin, generics.ListAPIView):
+    """GET /api/vitals/patient-vitals/ - List patient vital records"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = PatientVitalListSerializer
+    pagination_class = PatientVitalsPagination
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['patient', 'visit']
+
+    def get_queryset(self):
+        queryset = super().get_queryset().prefetch_related('visit__attachments', 'attachments')
+
+        # Handle patient=me filter
+        patient_filter = self.request.query_params.get('patient')
+        if patient_filter == 'me' and self.request.user.user_type == 'patient':
+            queryset = queryset.filter(patient=self.request.user)
+
+        return queryset
+
+    @swagger_auto_schema(
+        operation_id='getPatientVitals',
+        operation_summary='List patient vital records',
+        operation_description='''
+Get a list of patient-level vital records (independent of pregnancy).
+
+**Access Control:**
+- Patients see only their own vitals
+- Doctors/employees see vitals of patients who visited their clinics
+
+**Filters:**
+- `?patient=me` - (For patients) Get only your own vitals
+- `?patient=<id>` - Filter by patient ID
+- `?visit=<id>` - Filter by visit ID
+
+**Pagination:**
+- Default page size: 100 records
+- Max page size: 500 records
+
+**Response Fields:**
+- `note` - Patient's notes for the vital record
+- `dr_note` - Doctor's notes for the vital record
+- `files` - Array of file URLs attached to the vital
+- `attachments` - Array of direct vital attachments (with presigned B2 URLs)
+- `visit_attachments` - Array of attachments from the related visit
+        ''',
+        tags=['Patient Vitals'],
+        manual_parameters=[
+            openapi.Parameter('patient', openapi.IN_QUERY, description='Filter by patient ID (use "me" for own vitals)', type=openapi.TYPE_STRING),
+            openapi.Parameter('visit', openapi.IN_QUERY, description='Filter by visit ID', type=openapi.TYPE_INTEGER),
+            openapi.Parameter('page', openapi.IN_QUERY, description='Page number', type=openapi.TYPE_INTEGER),
+            openapi.Parameter('page_size', openapi.IN_QUERY, description='Items per page (default: 100, max: 500)', type=openapi.TYPE_INTEGER),
+        ]
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class PatientVitalDetailAPIView(PatientVitalQuerySetMixin, generics.RetrieveAPIView):
+    """GET /api/vitals/patient-vitals/{id}/ - Get patient vital record details"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = PatientVitalSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @swagger_auto_schema(
+        operation_id='getPatientVitalsById',
+        operation_summary='Get patient vital record details',
+        operation_description='Get detailed information about a specific patient vital record including attached files.',
+        tags=['Patient Vitals']
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class PatientVitalCreateAPIView(generics.CreateAPIView):
+    """POST /api/vitals/patient-vitals/create/ - Create patient vital record"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = PatientVitalCreateSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @swagger_auto_schema(
+        operation_id='postPatientVitals',
+        operation_summary='Create a patient vital record',
+        operation_description='''
+Create a new patient-level vital record (independent of pregnancy).
+
+**Required fields:**
+- `patient` - Patient ID (User with user_type='patient')
+
+**Optional fields:**
+- `visit` - Link to a specific visit
+- `systolic`, `diastolic` - Blood pressure readings
+- `o2` - Oxygen saturation
+- `puls` - Pulse rate
+- `temp` - Temperature
+- `weight` - Weight in kg
+- `sugar_level` - Blood glucose level in mg/dL
+- `reading_date` - Date/time of reading
+- `mood` - Patient mood
+- `note` - Patient note
+- `dr_note` - Doctor note
+- `uploaded_files` - File attachments (multipart/form-data)
+        ''',
+        tags=['Patient Vitals'],
+        request_body=PatientVitalCreateSerializer
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
+
+class PatientVitalUpdateAPIView(PatientVitalQuerySetMixin, generics.UpdateAPIView):
+    """PUT/PATCH /api/vitals/patient-vitals/{id}/update/ - Update patient vital record"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = PatientVitalUpdateSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @swagger_auto_schema(
+        operation_id='putPatientVitalsById',
+        operation_summary='Update a patient vital record',
+        operation_description='Update a patient vital record. New file uploads are appended to existing files.',
+        tags=['Patient Vitals']
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_id='patchPatientVitalsById',
+        operation_summary='Partially update a patient vital record',
+        operation_description='Partially update a patient vital record.',
+        tags=['Patient Vitals']
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
+
+class PatientVitalDeleteAPIView(PatientVitalQuerySetMixin, generics.DestroyAPIView):
+    """DELETE /api/vitals/patient-vitals/{id}/delete/ - Delete patient vital record"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_id='deletePatientVitalsById',
+        operation_summary='Delete a patient vital record',
+        operation_description='Delete a patient vital record.',
+        tags=['Patient Vitals']
+    )
+    def delete(self, request, *args, **kwargs):
+        return super().delete(request, *args, **kwargs)
+
+
+# ============================================================================
+# PATIENT VITAL ATTACHMENT VIEWS
+# ============================================================================
+
+class PatientVitalAttachmentUploadAPIView(PatientVitalQuerySetMixin, APIView):
+    """POST /api/vitals/patient-vitals/{id}/attachments/ - Upload attachments to a patient vital record"""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @swagger_auto_schema(
+        operation_id='postPatientVitalAttachments',
+        operation_summary='Upload attachments to a patient vital record',
+        operation_description='''
+Upload one or more file attachments to a patient vital record.
+
+**Request:**
+- Use `multipart/form-data` encoding
+- Field name: `attachments` (can send multiple files)
+- Supported: Any file type (images, PDFs, documents, etc.)
+
+**Example (curl):**
+```bash
+curl -X POST 'http://localhost:8000/api/vitals/patient-vitals/{id}/attachments/' \\
+  -H 'Authorization: Bearer {token}' \\
+  -F "attachments=@file1.pdf" \\
+  -F "attachments=@file2.jpg"
+```
+
+**Response:**
+Returns the list of uploaded attachments with presigned URLs.
+        ''',
+        tags=['Patient Vitals'],
+        manual_parameters=[
+            openapi.Parameter(
+                'attachments',
+                openapi.IN_FORM,
+                description='Files to upload (can be multiple)',
+                type=openapi.TYPE_FILE,
+                required=True
+            ),
+        ],
+        responses={
+            200: PatientVitalAttachmentSerializer(many=True),
+            404: 'Patient vital record not found'
+        }
+    )
+    def post(self, request, pk):
+        try:
+            queryset = self.get_queryset()
+            patient_vital = queryset.get(pk=pk)
+        except PatientVital.DoesNotExist:
+            return Response(
+                {'error': 'Patient vital record not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        files = request.FILES.getlist('attachments')
+        if not files:
+            files = request.FILES.getlist('files')
+
+        if not files:
+            return Response(
+                {'error': 'No files provided. Use field name "attachments" or "files".'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        uploaded_attachments = []
+        errors = []
+
+        for file_obj in files:
+            try:
+                timestamp = int(time.time())
+                safe_name = os.path.basename(file_obj.name).replace(' ', '_')
+                target_filename = f"patient_vital_{patient_vital.id}_att_{timestamp}_{safe_name}"
+
+                uploaded = upload_file_to_b2(file_obj, target_filename)
+
+                attachment = PatientVitalAttachment.objects.create(
+                    patient_vital=patient_vital,
+                    name=uploaded.file_name,
+                    file_id=uploaded.id_,
+                    file_type=file_obj.content_type or 'application/octet-stream'
+                )
+                uploaded_attachments.append(attachment)
+
+            except Exception as e:
+                errors.append({
+                    'file': file_obj.name,
+                    'error': str(e)
+                })
+
+        serializer = PatientVitalAttachmentSerializer(uploaded_attachments, many=True)
+        response_data = {
+            'attachments': serializer.data,
+            'uploaded_count': len(uploaded_attachments)
+        }
+
+        if errors:
+            response_data['errors'] = errors
+
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class PatientVitalAttachmentDeleteAPIView(PatientVitalQuerySetMixin, APIView):
+    """DELETE /api/vitals/patient-vitals/{patient_vital_id}/attachments/{attachment_id}/ - Delete an attachment"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_id='deletePatientVitalAttachment',
+        operation_summary='Delete a patient vital attachment',
+        operation_description='Delete a specific attachment from a patient vital record.',
+        tags=['Patient Vitals'],
+        responses={
+            200: 'Attachment deleted successfully',
+            404: 'Attachment not found'
+        }
+    )
+    def delete(self, request, patient_vital_id, attachment_id):
+        try:
+            queryset = self.get_queryset()
+            patient_vital = queryset.get(pk=patient_vital_id)
+            attachment = PatientVitalAttachment.objects.get(pk=attachment_id, patient_vital=patient_vital)
+            attachment.delete()
+            return Response(
+                {'message': 'Attachment deleted successfully'},
+                status=status.HTTP_200_OK
+            )
+        except PatientVital.DoesNotExist:
+            return Response(
+                {'error': 'Patient vital record not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except PatientVitalAttachment.DoesNotExist:
             return Response(
                 {'error': 'Attachment not found'},
                 status=status.HTTP_404_NOT_FOUND

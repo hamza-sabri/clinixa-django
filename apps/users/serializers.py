@@ -499,41 +499,63 @@ class PatientProfileSerializer(serializers.ModelSerializer):
 
 class PatientListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for patient lists - includes all pregnancies."""
-    
+
     profile = PatientProfileSerializer(source='patient_profile', read_only=True)
     pregnancies = serializers.SerializerMethodField()
     pregnancies_count = serializers.SerializerMethodField()
     city_name = serializers.CharField(source='city.name', read_only=True)
-    
+    birth_date = serializers.DateField(read_only=True)
+    age = serializers.SerializerMethodField()
+    has_active_pregnancy = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'phone', 'city', 'city_name', 'profile', 'pregnancies', 'pregnancies_count', 'created_at']
-    
+        fields = ['id', 'email', 'name', 'phone', 'birth_date', 'age', 'has_active_pregnancy', 'city', 'city_name', 'profile', 'pregnancies', 'pregnancies_count', 'created_at']
+
     def get_pregnancies(self, obj):
         """Get all pregnancies ordered by due_date descending."""
         if hasattr(obj, 'patient_profile'):
             pregnancies = obj.patient_profile.pregnancies.order_by('-due_date')
             return PregnancyListSerializer(pregnancies, many=True).data
         return []
-    
+
     def get_pregnancies_count(self, obj):
         if hasattr(obj, 'patient_profile'):
             return obj.patient_profile.pregnancies.count()
         return 0
 
+    def get_age(self, obj):
+        """Calculate age from birth_date."""
+        if obj.birth_date:
+            from datetime import date
+            today = date.today()
+            age = today.year - obj.birth_date.year
+            if (today.month, today.day) < (obj.birth_date.month, obj.birth_date.day):
+                age -= 1
+            return age
+        return None
+
+    def get_has_active_pregnancy(self, obj):
+        """Check if patient has an ongoing pregnancy."""
+        if hasattr(obj, 'patient_profile'):
+            return obj.patient_profile.pregnancies.filter(status='ongoing').exists()
+        return False
+
 
 class PatientDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for single patient view - includes all pregnancies."""
-    
+
     profile = PatientProfileSerializer(source='patient_profile', read_only=True)
     pregnancies = serializers.SerializerMethodField()
     pregnancies_count = serializers.SerializerMethodField()
     ongoing_pregnancy = serializers.SerializerMethodField()
     city_name = serializers.CharField(source='city.name', read_only=True)
-    
+    birth_date = serializers.DateField(read_only=True)
+    age = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'phone', 'city', 'city_name', 'profile', 'pregnancies', 'pregnancies_count', 'ongoing_pregnancy', 'created_at']
+        fields = ['id', 'email', 'name', 'phone', 'birth_date', 'age', 'city', 'city_name', 'profile', 'pregnancies', 'pregnancies_count', 'ongoing_pregnancy', 'created_at']
     
     def get_pregnancies(self, obj):
         """Get all pregnancies ordered by due_date descending."""
@@ -552,6 +574,17 @@ class PatientDetailSerializer(serializers.ModelSerializer):
             ongoing = obj.patient_profile.pregnancies.filter(status='ongoing').order_by('-due_date').first()
             if ongoing:
                 return PregnancyListSerializer(ongoing).data
+        return None
+
+    def get_age(self, obj):
+        """Calculate age from birth_date."""
+        if obj.birth_date:
+            from datetime import date
+            today = date.today()
+            age = today.year - obj.birth_date.year
+            if (today.month, today.day) < (obj.birth_date.month, obj.birth_date.day):
+                age -= 1
+            return age
         return None
 
 
@@ -715,17 +748,34 @@ class BabyWithVitalsSerializer(serializers.ModelSerializer):
 
 class PregnancyListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for pregnancy lists."""
-    
+
     pregnancy_week = serializers.ReadOnlyField()
     trimester = serializers.ReadOnlyField()
     babies_count = serializers.SerializerMethodField()
-    
+    gestation = serializers.SerializerMethodField()
+    is_ongoing = serializers.SerializerMethodField()
+
     class Meta:
         model = Pregnancy
-        fields = ['id', 'lmp', 'due_date', 'status', 'is_high_risk', 'pregnancy_week', 'trimester', 'babies_count', 'notes', 'created_at']
-    
+        fields = ['id', 'lmp', 'due_date', 'status', 'is_ongoing', 'gestation', 'is_high_risk', 'pregnancy_week', 'trimester', 'babies_count', 'notes', 'created_at']
+
     def get_babies_count(self, obj):
         return obj.babies.count()
+
+    def get_gestation(self, obj):
+        """Return gestation as 'X weeks Y days' format."""
+        if obj.lmp:
+            from datetime import date
+            days = (date.today() - obj.lmp).days
+            if days < 0:
+                return None
+            weeks = days // 7
+            remaining_days = days % 7
+            return f"{weeks}w {remaining_days}d"
+        return None
+
+    def get_is_ongoing(self, obj):
+        return obj.status == 'ongoing'
 
 
 class PregnancyDetailSerializer(serializers.ModelSerializer):
@@ -913,6 +963,142 @@ class BabyUpdateSerializer(serializers.ModelSerializer):
 # ============================================================================
 
 from .models import UserAttachment
+
+
+# ============================================================================
+# QUICK PATIENT CREATE SERIALIZER
+# ============================================================================
+
+class QuickPatientCreateSerializer(serializers.Serializer):
+    """
+    Serializer for quickly creating a patient with optional pregnancy.
+
+    Creates a patient user and optionally a pregnancy if lmp is provided.
+    """
+
+    # Required fields
+    name = serializers.CharField(
+        max_length=255,
+        help_text='Patient full name (required)'
+    )
+    phone = serializers.CharField(
+        max_length=20,
+        help_text='Phone number in international format, e.g. +971501234567 (required)'
+    )
+
+    # Optional fields
+    birthday = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text='Patient birth date (YYYY-MM-DD)'
+    )
+    city = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text='City ID for the patient'
+    )
+    lmp = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text='Last menstrual period date (YYYY-MM-DD). If provided, a pregnancy will be created. Due date will be calculated as LMP + 280 days if not provided.'
+    )
+    due_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text='Expected due date (YYYY-MM-DD). Optional - if not provided but lmp is, it will be calculated as LMP + 280 days.'
+    )
+
+    def validate_phone(self, value):
+        """Validate and normalize phone number."""
+        # Remove any spaces or dashes
+        value = value.replace(' ', '').replace('-', '')
+
+        # Check if a user with this phone already exists
+        if User.objects.filter(phone=value).exists():
+            raise serializers.ValidationError('A patient with this phone number already exists.')
+
+        return value
+
+    def validate_city(self, value):
+        """Validate that the city exists."""
+        if value is not None:
+            from apps.locations.models import City
+            if not City.objects.filter(id=value).exists():
+                raise serializers.ValidationError('City not found.')
+        return value
+
+    def create(self, validated_data):
+        """Create user, patient profile, and optionally pregnancy."""
+        from apps.locations.models import City
+        from datetime import timedelta
+
+        # Extract fields
+        name = validated_data['name']
+        phone = validated_data['phone']
+        birthday = validated_data.get('birthday')
+        city_id = validated_data.get('city')
+        lmp = validated_data.get('lmp')
+        due_date = validated_data.get('due_date')
+
+        # Get city object
+        city = None
+        if city_id:
+            city = City.objects.filter(id=city_id).first()
+
+        # Create user with phone (uses placeholder email)
+        user = User.objects.create_user_with_phone(
+            phone=phone,
+            name=name
+        )
+
+        # Update birth_date and city
+        if birthday:
+            user.birth_date = birthday
+        if city:
+            user.city = city
+        if birthday or city:
+            user.save(update_fields=['birth_date', 'city'] if birthday and city else
+                      ['birth_date'] if birthday else ['city'])
+
+        # Ensure patient profile exists
+        profile, _ = PatientProfile.objects.get_or_create(user=user)
+
+        # Create pregnancy if lmp is provided
+        pregnancy = None
+        if lmp:
+            # Calculate due_date from lmp if not provided (LMP + 280 days)
+            if not due_date:
+                due_date = lmp + timedelta(days=280)
+
+            pregnancy = Pregnancy.objects.create(
+                patient_profile=profile,
+                lmp=lmp,
+                due_date=due_date,
+                status='ongoing'
+            )
+            # Create one baby by default
+            Baby.objects.create(pregnancy=pregnancy)
+
+        # Store pregnancy for response serialization
+        user._created_pregnancy = pregnancy
+
+        return user
+
+
+class QuickPatientCreateResponseSerializer(serializers.Serializer):
+    """Response serializer for quick patient creation - used in Swagger documentation."""
+
+    id = serializers.IntegerField(help_text='Patient user ID')
+    name = serializers.CharField(help_text='Patient name')
+    phone = serializers.CharField(help_text='Patient phone number')
+    birthday = serializers.DateField(help_text='Patient birth date', allow_null=True)
+    city = serializers.IntegerField(help_text='City ID', allow_null=True)
+    city_name = serializers.CharField(help_text='City name', allow_null=True)
+    pregnancy = serializers.DictField(
+        help_text='Created pregnancy details (null if no lmp provided)',
+        allow_null=True
+    )
+    created_at = serializers.DateTimeField(help_text='Account creation timestamp')
 
 
 class UserAttachmentSerializer(serializers.ModelSerializer):

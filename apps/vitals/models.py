@@ -173,3 +173,76 @@ class VitalAttachment(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.vital})"
+
+
+class PatientVital(models.Model):
+    """
+    Patient-level vital signs record, independent of pregnancy.
+    Linked directly to User (patient) instead of Pregnancy.
+    Used when doctors need to track vitals for patients who are not pregnant.
+    """
+
+    # Link to patient (User)
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='patient_vitals',
+        verbose_name='patient'
+    )
+    # Optional link to a specific visit
+    visit = models.ForeignKey(
+        'visits.Visit',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='patient_vitals',
+        verbose_name='visit'
+    )
+    # Vital measurements (same as Vital model)
+    systolic = models.IntegerField('systolic pressure', null=True, blank=True)
+    diastolic = models.IntegerField('diastolic pressure', null=True, blank=True)
+    o2 = models.IntegerField('oxygen saturation', null=True, blank=True)
+    puls = models.IntegerField('pulse rate', null=True, blank=True)
+    temp = models.FloatField('temperature', null=True, blank=True)
+    weight = models.FloatField('weight (kg)', null=True, blank=True)
+    sugar_level = models.IntegerField(
+        'blood glucose level',
+        null=True,
+        blank=True,
+        help_text='Blood glucose level in mg/dL'
+    )
+    reading_date = models.DateTimeField('reading date', null=True, blank=True)
+    files = models.JSONField('attached files', default=list, blank=True)  # Array of Cloudinary URLs
+    mood = models.CharField('mood', max_length=100, blank=True)
+    note = models.TextField('patient note', blank=True)
+    dr_note = models.TextField('doctor note', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'patient vital'
+        verbose_name_plural = 'patient vitals'
+        ordering = ['-reading_date', '-created_at']
+
+    def __str__(self):
+        return f"{self.patient.name or self.patient.email} - {self.reading_date or self.created_at}"
+
+
+class PatientVitalAttachment(models.Model):
+    """
+    Attachments for a patient vital record (e.g. lab results, x-rays, etc.)
+    Files are stored in Backblaze B2.
+    """
+    patient_vital = models.ForeignKey(
+        PatientVital,
+        on_delete=models.CASCADE,
+        related_name='attachments',
+        verbose_name='patient vital'
+    )
+    name = models.CharField('file name', max_length=255)
+    file_id = models.CharField('b2 file id', max_length=200)  # Store B2 file ID for secure access
+    file_type = models.CharField('file type', max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.patient_vital})"

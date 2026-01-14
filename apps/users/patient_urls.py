@@ -14,6 +14,7 @@ from .views import (
     PatientMePregnancyCreateView,
     PatientAttachmentListUploadAPIView,
     PatientAttachmentDeleteAPIView,
+    QuickPatientCreateAPIView,
 )
 
 app_name = 'patients'
@@ -22,9 +23,10 @@ urlpatterns = [
     # Patient self-service endpoints
     path('me/', PatientMeView.as_view(), name='patient-me'),
     path('me/pregnancies/create/', PatientMePregnancyCreateView.as_view(), name='patient-me-pregnancy-create'),
-    
+
     # Admin/staff patient management
     path('', PatientListAPIView.as_view(), name='patient-list'),
+    path('quick-create/', QuickPatientCreateAPIView.as_view(), name='patient-quick-create'),
     path('create/', PatientCreateAPIView.as_view(), name='patient-create'),
     path('<int:pk>/', PatientDetailAPIView.as_view(), name='patient-detail'),
     path('<int:pk>/update/', PatientUpdateAPIView.as_view(), name='patient-update'),
