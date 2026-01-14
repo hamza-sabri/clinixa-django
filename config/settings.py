@@ -9,6 +9,7 @@ from datetime import timedelta
 import os
 
 import dj_database_url
+import sentry_sdk
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -342,4 +343,20 @@ CORS_ALLOW_HEADERS = [
 ]
 
 ALLOWED_HOSTS = ['*']
+
+# Sentry Configuration for Error Monitoring
+SENTRY_DSN = os.getenv('SENTRY_DSN', '')
+
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        # Set traces_sample_rate to 1.0 to capture 100% of transactions for tracing
+        traces_sample_rate=1.0,
+        # Set profiles_sample_rate to 1.0 to profile 100% of sampled transactions
+        profiles_sample_rate=1.0,
+        # Send default PII (user info, request headers, IPs)
+        send_default_pii=True,
+        # Environment tag to distinguish between staging/production
+        environment=os.getenv('SENTRY_ENVIRONMENT', 'development'),
+    )
 

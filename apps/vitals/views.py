@@ -608,6 +608,9 @@ Get a list of patient-level vital records (independent of pregnancy).
 - Max page size: 500 records
 
 **Response Fields:**
+- `created_by` - User ID of who created this vital record
+- `created_by_id` - Same as created_by
+- `created_by_name` - Name of the user who created this vital record
 - `note` - Patient's notes for the vital record
 - `dr_note` - Doctor's notes for the vital record
 - `files` - Array of file URLs attached to the vital
@@ -635,7 +638,14 @@ class PatientVitalDetailAPIView(PatientVitalQuerySetMixin, generics.RetrieveAPIV
     @swagger_auto_schema(
         operation_id='getPatientVitalsById',
         operation_summary='Get patient vital record details',
-        operation_description='Get detailed information about a specific patient vital record including attached files.',
+        operation_description='''
+Get detailed information about a specific patient vital record including attached files.
+
+**Response includes:**
+- `created_by` - User ID of who created this vital record
+- `created_by_id` - Same as created_by
+- `created_by_name` - Name of the user who created this vital record
+        ''',
         tags=['Patient Vitals']
     )
     def get(self, request, *args, **kwargs):
@@ -670,6 +680,14 @@ Create a new patient-level vital record (independent of pregnancy).
 - `note` - Patient note
 - `dr_note` - Doctor note
 - `uploaded_files` - File attachments (multipart/form-data)
+
+**Auto-set fields:**
+- `created_by` - Automatically set to the authenticated user who creates the record
+
+**Response includes:**
+- `created_by` - User ID of who created this vital record
+- `created_by_id` - Same as created_by
+- `created_by_name` - Name of the user who created this vital record
         ''',
         tags=['Patient Vitals'],
         request_body=PatientVitalCreateSerializer

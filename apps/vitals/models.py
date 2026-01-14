@@ -189,6 +189,15 @@ class PatientVital(models.Model):
         related_name='patient_vitals',
         verbose_name='patient'
     )
+    # Track who created this vital record
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_patient_vitals',
+        verbose_name='created by'
+    )
     # Optional link to a specific visit
     visit = models.ForeignKey(
         'visits.Visit',

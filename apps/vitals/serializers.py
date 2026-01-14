@@ -410,6 +410,10 @@ class PatientVitalSerializer(serializers.ModelSerializer):
     visit_id = serializers.IntegerField(source='visit.id', read_only=True)
     visit_time = serializers.DateTimeField(source='visit.time', read_only=True)
 
+    # Created by info
+    created_by_id = serializers.IntegerField(source='created_by.id', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.name', read_only=True)
+
     # Attachments
     attachments = PatientVitalAttachmentSerializer(many=True, read_only=True)
 
@@ -418,11 +422,12 @@ class PatientVitalSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'patient', 'patient_name', 'patient_email', 'patient_phone',
             'visit', 'visit_id', 'visit_time',
+            'created_by', 'created_by_id', 'created_by_name',
             'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight', 'sugar_level',
             'reading_date', 'files', 'mood', 'note', 'dr_note',
             'attachments', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
 
 
 class PatientVitalListSerializer(serializers.ModelSerializer):
@@ -430,6 +435,8 @@ class PatientVitalListSerializer(serializers.ModelSerializer):
 
     patient_name = serializers.CharField(source='patient.name', read_only=True)
     patient_id = serializers.IntegerField(source='patient.id', read_only=True)
+    created_by_id = serializers.IntegerField(source='created_by.id', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.name', read_only=True)
     attachments = PatientVitalAttachmentSerializer(many=True, read_only=True)
     visit_attachments = serializers.SerializerMethodField()
 
@@ -437,6 +444,7 @@ class PatientVitalListSerializer(serializers.ModelSerializer):
         model = PatientVital
         fields = [
             'id', 'patient', 'patient_id', 'patient_name', 'visit',
+            'created_by', 'created_by_id', 'created_by_name',
             'systolic', 'diastolic', 'o2', 'puls', 'temp', 'weight', 'sugar_level',
             'reading_date', 'mood', 'note', 'dr_note', 'files',
             'attachments', 'visit_attachments'
@@ -487,6 +495,9 @@ class PatientVitalCreateSerializer(serializers.ModelSerializer):
             from apps.vitals.utils import upload_files_to_cloudinary
             file_urls = upload_files_to_cloudinary(uploaded_files)
             validated_data['files'] = file_urls
+
+        # Auto-set created_by from the authenticated user
+        validated_data['created_by'] = self.context['request'].user
 
         return super().create(validated_data)
 
