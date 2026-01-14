@@ -61,7 +61,4 @@ typing_extensions==4.13.2
 uritemplate==4.1.1
 urllib3==2.4.0
 whitenoise==6.6.0
-
-
-
-
+b2sdk==2.7.0
