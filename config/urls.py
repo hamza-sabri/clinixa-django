@@ -93,6 +93,9 @@ urlpatterns = [
     
     # Health check endpoint
     path('health/', lambda request: __import__('django.http', fromlist=['JsonResponse']).JsonResponse({'status': 'healthy'}), name='health'),
+
+    # Sentry debug endpoint (triggers a test error)
+    path('sentry-debug/', lambda request: 1 / 0, name='sentry-debug'),
     
     # Root endpoint
     path('', lambda request: __import__('django.http', fromlist=['JsonResponse']).JsonResponse({
