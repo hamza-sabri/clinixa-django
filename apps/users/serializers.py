@@ -297,13 +297,20 @@ class RequestOTPSerializer(serializers.Serializer):
         """Validate and normalize phone number."""
         # Remove any spaces or dashes
         value = value.replace(' ', '').replace('-', '')
-        
+
+        # Convert local Palestinian numbers (05xxxxxxxx) to international format
+        if value.startswith('05') and len(value) == 10:
+            value = '+970' + value[1:]  # Replace leading 0 with +970
+        # Also handle numbers starting with just 5 (without leading 0)
+        elif value.startswith('5') and len(value) == 9:
+            value = '+970' + value
+
         # Basic validation - should start with + and have at least 10 digits
         if not value.startswith('+'):
-            raise serializers.ValidationError('Phone number must be in international format (starting with +)')
+            raise serializers.ValidationError('Phone number must be in international format (starting with +) or local format (05xxxxxxxx)')
         if len(value) < 10:
             raise serializers.ValidationError('Phone number is too short')
-        
+
         return value
 
 
@@ -328,7 +335,16 @@ class VerifyOTPSerializer(serializers.Serializer):
     
     def validate_phone(self, value):
         """Validate and normalize phone number."""
-        return value.replace(' ', '').replace('-', '')
+        value = value.replace(' ', '').replace('-', '')
+
+        # Convert local Palestinian numbers (05xxxxxxxx) to international format
+        if value.startswith('05') and len(value) == 10:
+            value = '+970' + value[1:]  # Replace leading 0 with +970
+        # Also handle numbers starting with just 5 (without leading 0)
+        elif value.startswith('5') and len(value) == 9:
+            value = '+970' + value
+
+        return value
 
 
 class OTPResponseSerializer(serializers.Serializer):
