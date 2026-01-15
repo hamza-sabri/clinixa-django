@@ -366,27 +366,29 @@ Verify the OTP code and authenticate the patient.
         }
     )
     def post(self, request):
+        # Preserve original phone for storage
+        original_phone = request.data.get('phone', '')
+
         serializer = VerifyOTPSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
+
         phone = serializer.validated_data['phone']
         otp_code = serializer.validated_data['otp']
         name = serializer.validated_data.get('name', '')
-        
+
         # Verify OTP
         result = otp_service.verify_otp(phone, otp_code)
-        
+
         if not result['success']:
             return Response({'error': result['error']}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Get or create user
+
+        # Get or create user - search by all phone variants
         is_new_user = False
-        try:
-            user = User.objects.get(phone=phone)
-        except User.DoesNotExist:
-            # Create new patient user
-            user = User.objects.create_user_with_phone(phone=phone, name=name)
+        user = otp_service.get_user_by_phone(phone)
+        if not user:
+            # Create new patient user with original phone format
+            user = User.objects.create_user_with_phone(phone=original_phone, name=name)
             is_new_user = True
         
         # Ensure patient profile exists

@@ -22,6 +22,57 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 RATE_LIMIT_MAX_REQUESTS = 3
 
 
+def normalize_phone(phone: str) -> str:
+    """
+    Normalize a phone number to international format.
+
+    Converts Palestinian local numbers (05xxxxxxxx) to +970 format.
+
+    Args:
+        phone: The phone number to normalize
+
+    Returns:
+        str: The normalized phone number in international format
+    """
+    phone = phone.replace(' ', '').replace('-', '')
+
+    # Convert local Palestinian numbers (05xxxxxxxx) to international format
+    if phone.startswith('05') and len(phone) == 10:
+        return '+970' + phone[1:]  # Replace leading 0 with +970
+    # Also handle numbers starting with just 5 (without leading 0)
+    elif phone.startswith('5') and len(phone) == 9:
+        return '+970' + phone
+
+    return phone
+
+
+def get_phone_variants(phone: str) -> list:
+    """
+    Get all possible variants of a phone number for lookup.
+
+    Returns both the original format and normalized format.
+
+    Args:
+        phone: The phone number
+
+    Returns:
+        list: List of phone number variants to search for
+    """
+    variants = [phone]
+    normalized = normalize_phone(phone)
+
+    if normalized != phone:
+        variants.append(normalized)
+
+    # Also add local format if we have international format
+    if phone.startswith('+970') and len(phone) == 13:
+        local_format = '0' + phone[4:]  # +970599... -> 0599...
+        if local_format not in variants:
+            variants.append(local_format)
+
+    return variants
+
+
 def generate_otp(phone: str) -> str:
     """
     Generate a new OTP for the given phone number.
@@ -64,18 +115,19 @@ def send_otp(phone: str, otp_code: str) -> bool:
 def create_otp_verification(phone: str) -> dict:
     """
     Create a new OTP verification record and send OTP.
-    
-    Invalidates any previous unused OTPs for the same phone.
-    
+
+    Invalidates any previous unused OTPs for the same phone (all variants).
+
     Args:
         phone: The phone number to create OTP for
-        
+
     Returns:
         dict: Contains 'success', 'otp_code' (for testing), 'expires_in'
     """
-    # Invalidate any existing unused OTPs for this phone
+    # Invalidate any existing unused OTPs for this phone (all variants)
+    variants = get_phone_variants(phone)
     OTPVerification.objects.filter(
-        phone=phone,
+        phone__in=variants,
         is_used=False
     ).update(is_used=True)
     
@@ -103,17 +155,20 @@ def create_otp_verification(phone: str) -> dict:
 def verify_otp(phone: str, otp_code: str) -> dict:
     """
     Verify an OTP code for the given phone number.
-    
+
+    Checks all phone variants (local and international formats).
+
     Args:
         phone: The phone number to verify OTP for
         otp_code: The OTP code to verify
-        
+
     Returns:
         dict: Contains 'success', 'error' (if any), 'otp_record' (if successful)
     """
-    # Find the most recent valid OTP for this phone
+    # Find the most recent valid OTP for this phone (all variants)
+    variants = get_phone_variants(phone)
     otp_record = OTPVerification.objects.filter(
-        phone=phone,
+        phone__in=variants,
         is_used=False
     ).order_by('-created_at').first()
     
@@ -159,24 +214,27 @@ def verify_otp(phone: str, otp_code: str) -> dict:
 def is_rate_limited(phone: str) -> dict:
     """
     Check if the phone number has exceeded the rate limit for OTP requests.
-    
+
+    Checks all phone variants (local and international formats).
+
     Args:
         phone: The phone number to check
-        
+
     Returns:
         dict: Contains 'limited' (bool), 'wait_seconds' (int, if limited)
     """
     window_start = timezone.now() - timedelta(seconds=RATE_LIMIT_WINDOW_SECONDS)
-    
+    variants = get_phone_variants(phone)
+
     recent_requests = OTPVerification.objects.filter(
-        phone=phone,
+        phone__in=variants,
         created_at__gte=window_start
     ).count()
-    
+
     if recent_requests >= RATE_LIMIT_MAX_REQUESTS:
         # Find when the oldest request in window was made
         oldest_in_window = OTPVerification.objects.filter(
-            phone=phone,
+            phone__in=variants,
             created_at__gte=window_start
         ).order_by('created_at').first()
         
@@ -197,13 +255,32 @@ def is_rate_limited(phone: str) -> dict:
 def check_user_exists(phone: str) -> bool:
     """
     Check if a user with the given phone number exists.
-    
+
+    Checks all phone number variants (local and international formats).
+
     Args:
         phone: The phone number to check
-        
+
     Returns:
         bool: True if user exists, False otherwise
     """
     from django.contrib.auth import get_user_model
     User = get_user_model()
-    return User.objects.filter(phone=phone).exists()
+    variants = get_phone_variants(phone)
+    return User.objects.filter(phone__in=variants).exists()
+
+
+def get_user_by_phone(phone: str):
+    """
+    Get a user by phone number, checking all format variants.
+
+    Args:
+        phone: The phone number to search for
+
+    Returns:
+        User or None: The user if found, None otherwise
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    variants = get_phone_variants(phone)
+    return User.objects.filter(phone__in=variants).first()
