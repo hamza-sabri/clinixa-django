@@ -306,28 +306,31 @@ If the phone number is new, a new patient account will be created upon successfu
         }
     )
     def post(self, request):
+        # Preserve original phone for response
+        original_phone = request.data.get('phone', '')
+
         serializer = RequestOTPSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
+
         phone = serializer.validated_data['phone']
-        
+
         # Check rate limiting
         rate_limit = otp_service.is_rate_limited(phone)
         if rate_limit['limited']:
             return Response({
                 'error': f"Too many requests. Please wait {rate_limit['wait_seconds']} seconds."
             }, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        
+
         # Generate and send OTP
         result = otp_service.create_otp_verification(phone)
-        
+
         # Check if user exists
         is_new_user = not otp_service.check_user_exists(phone)
-        
+
         return Response({
             'message': 'OTP sent successfully',
-            'phone': phone,
+            'phone': original_phone,
             'expires_in': result['expires_in'],
             'is_new_user': is_new_user
         }, status=status.HTTP_200_OK)
