@@ -129,71 +129,103 @@ class EmployeeCreateSerializer(serializers.Serializer):
     """
     Serializer for creating an employee.
     Creates both the User (with user_type='employee') and the Employee record.
+
+    If email/password are not provided, they will be auto-generated from staff_phone.
     """
-    
+
     # User fields
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, min_length=6)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, min_length=6, required=False, allow_blank=True)
     name = serializers.CharField(required=False, allow_blank=True)
-    phone = serializers.CharField(required=False, allow_blank=True)
+    staff_phone = serializers.CharField(required=True, help_text='Phone number for the employee (required)')
     city = serializers.IntegerField(
         required=False,
         allow_null=True,
         help_text='City ID for the employee'
     )
-    
+
     # Employee fields
     clinic = serializers.PrimaryKeyRelatedField(queryset=Clinic.objects.all())
     role = serializers.CharField(default='staff')
-    
+
     def validate_email(self, value):
-        if User.objects.filter(email=value.lower()).exists():
+        if value and User.objects.filter(email=value.lower()).exists():
             raise serializers.ValidationError('A user with this email already exists.')
-        return value.lower()
-    
+        return value.lower() if value else value
+
     def validate_password(self, value):
-        validate_password(value)
+        if value:
+            validate_password(value)
         return value
-    
+
+    def validate_staff_phone(self, value):
+        # Normalize phone number
+        value = value.replace(' ', '').replace('-', '')
+        if not value:
+            raise serializers.ValidationError('Phone number is required.')
+        return value
+
     def validate_city(self, value):
         if value is not None:
             from apps.locations.models import City
             if not City.objects.filter(id=value).exists():
                 raise serializers.ValidationError('City not found.')
         return value
-    
+
     def validate_clinic(self, value):
         # Ensure the clinic belongs to the requesting doctor
         request = self.context.get('request')
         if request and value.doctor != request.user:
             raise serializers.ValidationError('You can only add employees to your own clinics.')
         return value
-    
+
     def create(self, validated_data):
+        import secrets
+
         # Extract city
         city_id = validated_data.pop('city', None)
         city = None
         if city_id:
             from apps.locations.models import City
             city = City.objects.filter(id=city_id).first()
-        
+
+        phone = validated_data.get('staff_phone', '')
+
+        # Auto-generate email if not provided
+        email = validated_data.get('email')
+        if not email:
+            # Generate email from phone: clinixa.0592392662@clinixa-employee.local
+            clean_phone = phone.replace('+', '').replace(' ', '').replace('-', '')
+            email = f"clinixa.{clean_phone}@clinixa-employee.local"
+            # Ensure uniqueness
+            base_email = email
+            counter = 1
+            while User.objects.filter(email=email).exists():
+                email = f"clinixa.{clean_phone}.{counter}@clinixa-employee.local"
+                counter += 1
+
+        # Auto-generate password if not provided
+        password = validated_data.get('password')
+        if not password:
+            password = secrets.token_urlsafe(16)
+
         # Create the user
         user = User.objects.create_user(
-            email=validated_data['email'],
-            password=validated_data['password'],
+            email=email,
+            password=password,
             name=validated_data.get('name', ''),
-            phone=validated_data.get('phone', ''),
+            phone=phone,
             user_type='employee',
             city=city
         )
-        
+
         # Create the employee record
         employee = Employee.objects.create(
             staff=user,
             clinic=validated_data['clinic'],
             role=validated_data.get('role', 'staff')
         )
-        
+
         return employee
 
 
