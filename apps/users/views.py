@@ -793,7 +793,9 @@ class PatientQuerySetMixin:
             patient_ids = Visit.objects.filter(clinic_id__in=clinic_ids).values_list('pregnancy__patient_profile__user_id', flat=True).distinct()
             legacy_patient_ids = Visit.objects.filter(clinic_id__in=clinic_ids, patient__isnull=False).values_list('patient_id', flat=True).distinct()
             all_patient_ids = set(patient_ids) | set(legacy_patient_ids)
-            return User.objects.filter(id__in=all_patient_ids, user_type='patient').select_related('patient_profile').distinct()
+            return User.objects.filter(
+                Q(id__in=all_patient_ids) | Q(user_type='patient')
+            ).filter(user_type='patient').select_related('patient_profile').distinct()
         elif user.user_type == 'patient' and hasattr(user, 'patient_profile'):
             return User.objects.filter(id=user.id, user_type='patient').select_related('patient_profile').distinct()
         
