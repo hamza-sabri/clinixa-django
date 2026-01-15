@@ -344,6 +344,9 @@ CORS_ALLOW_HEADERS = [
 
 ALLOWED_HOSTS = ['*']
 
+# X-Frame-Options - Allow same-origin framing for Django admin popups
+X_FRAME_OPTIONS = 'SAMEORIGIN'
+
 # Sentry Configuration for Error Monitoring
 SENTRY_DSN = os.getenv('SENTRY_DSN', '')
 
