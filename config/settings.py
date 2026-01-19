@@ -99,9 +99,14 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': dj_database_url.parse(
-        os.getenv('DATABASE_URL', 'postgres://postgres@localhost:5432/clinixa')
-    ),
+    'default': {
+        **dj_database_url.parse(
+            os.getenv('DATABASE_URL', 'postgres://postgres@localhost:5432/clinixa')
+        ),
+        'OPTIONS': {
+            'options': '-c search_path=public'
+        }
+    }
 }
 
 
