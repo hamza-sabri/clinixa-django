@@ -99,9 +99,17 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': dj_database_url.parse(
-        os.getenv('DATABASE_URL', 'postgres://postgres@localhost:5432/clinixa')
-    ),
+    'default': {
+        **dj_database_url.parse(
+            os.getenv('DATABASE_URL', 'postgres://postgres@localhost:5432/clinixa')
+        ),
+        'CONN_MAX_AGE': 0,  # Let PgBouncer handle connection pooling
+        'CONN_HEALTH_CHECKS': True,  # Validate connections before use
+        'OPTIONS': {
+            'connect_timeout': 10,
+            'options': '-c statement_timeout=30000',  # 30s query timeout
+        },
+    },
 }
 
 
