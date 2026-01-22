@@ -678,45 +678,32 @@ class PatientCreateSerializer(serializers.ModelSerializer):
 
 class PatientUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating patient and profile."""
-    
+
     # Profile fields
     blood_type = serializers.CharField(required=False, allow_blank=True)
     allergies = serializers.CharField(required=False, allow_blank=True)
     medical_history = serializers.CharField(required=False, allow_blank=True)
     profile_notes = serializers.CharField(required=False, allow_blank=True)
-    city = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text='City ID for the patient'
-    )
-    
+    city_name = serializers.CharField(source='city.name', read_only=True)
+
     class Meta:
         model = User
-        fields = ['name', 'phone', 'city', 'blood_type', 'allergies', 'medical_history', 'profile_notes']
-    
-    def validate_city(self, value):
-        if value is not None:
-            from apps.locations.models import City
-            if not City.objects.filter(id=value).exists():
-                raise serializers.ValidationError('City not found.')
-        return value
-    
+        fields = ['name', 'phone', 'city', 'city_name', 'blood_type', 'allergies', 'medical_history', 'profile_notes']
+
     def update(self, instance, validated_data):
         # Extract profile fields
         blood_type = validated_data.pop('blood_type', None)
         allergies = validated_data.pop('allergies', None)
         medical_history = validated_data.pop('medical_history', None)
         profile_notes = validated_data.pop('profile_notes', None)
-        city_id = validated_data.pop('city', None)
-        
+
         # Update user fields
         instance.name = validated_data.get('name', instance.name)
         instance.phone = validated_data.get('phone', instance.phone)
-        if 'city' in self.initial_data:  # Only update city if it was in the request
-            from apps.locations.models import City
-            instance.city = City.objects.filter(id=city_id).first() if city_id else None
+        if 'city' in validated_data:
+            instance.city = validated_data.get('city')
         instance.save()
-        
+
         # Update or create profile
         profile, created = PatientProfile.objects.get_or_create(user=instance)
         if blood_type is not None:
@@ -728,7 +715,7 @@ class PatientUpdateSerializer(serializers.ModelSerializer):
         if profile_notes is not None:
             profile.notes = profile_notes
         profile.save()
-        
+
         return instance
 
 

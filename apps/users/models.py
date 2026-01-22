@@ -128,7 +128,7 @@ class PatientProfile(models.Model):
         related_name='patient_profile',
         verbose_name='patient user'
     )
-    blood_type = models.CharField('blood type', max_length=10, blank=True)  # A+, B-, AB+, O-, etc.
+    blood_type = models.CharField('blood type', max_length=10, blank=True, default='')  # A+, B-, AB+, O-, etc.
     allergies = models.TextField('allergies', blank=True)
     medical_history = models.TextField('medical history', blank=True)
     notes = models.TextField('notes', blank=True)
